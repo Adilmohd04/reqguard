@@ -1,0 +1,165 @@
+# ReqGuard — File Ownership Map
+#
+# THE RULE: every file has exactly one owner. Two agents never edit one file.
+# This is the single mechanism that makes parallel coding agents safe.
+#
+# Enforced by crew/integrate.ps1: a branch that touches a path it does not own
+# is REJECTED at the gate, before merge. Not a warning — a rejection.
+#
+# Roles:
+#   S  kiro_cli     supervisor  — contracts, integration, merges, Wave 2
+#   A  hermes       developer   — path safety, read tools, mutation engine
+#   D  opencode     developer   — test runner, sandbox, verifier
+#   B  claude_code  developer   — the four LLM stages + Anthropic SDK
+#   E  antigravity  developer   — the 18-case benchmark corpus
+#   C  kiro_cli     dev hat     — trajectory, evaluator, reporting
+
+version: 1
+
+# Live roster: CAO team `cao-ReqGuard` — 4 developers + 1 code_supervisor.
+# kiro_cli wears two hats (S and C); they are separate branches and separate
+# sessions, never interleaved.
+roles:
+  S:
+    name: Supervisor
+    tool: kiro_cli
+    cao_agent: e72d844a
+    cao_role: code_supervisor
+    branch: main            # shared tree - one branch for everyone
+    writes_feature_code: false
+  A:
+    name: Mutation and Inspection
+    tool: hermes
+    cao_agent: 0e36774e
+    cao_role: developer
+    branch: main            # shared tree - one branch for everyone
+  D:
+    name: Execution and Verification
+    tool: opencode_cli
+    cao_agent: f21bc34e
+    cao_role: developer
+    branch: main            # shared tree - one branch for everyone
+  B:
+    name: Agent Stages
+    tool: claude_code
+    cao_agent: 2acb1737
+    cao_role: developer
+    branch: main            # shared tree - one branch for everyone
+  E:
+    name: Benchmark Corpus
+    tool: antigravity_cli
+    cao_agent: 9135b410
+    cao_role: developer
+    branch: main            # shared tree - one branch for everyone
+  C:
+    name: Evidence Infrastructure
+    tool: kiro_cli            # same agent as S, second hat, separate session
+    cao_agent: e72d844a
+    cao_role: code_supervisor
+    branch: main            # shared tree - one branch for everyone
+
+# ── Frozen: Supervisor only. A change here blocks EVERY track. ────────────
+owned_by_S:
+  - src/reqguard/models.py
+  - src/reqguard/errors.py
+  - src/reqguard/config.py
+  - src/reqguard/__init__.py
+  - src/reqguard/agent/orchestrator.py    # wires A+B+C; written LAST, after merge
+  - src/reqguard/cli/main.py              # wires everything; written LAST
+  - pyproject.toml
+  - crew/**
+  - docs/**
+  - AGENTS.md
+  - CLAUDE.md
+
+# ── Track A — hermes. Mutation + inspection. stdlib + pydantic. NO anthropic. ──
+owned_by_A:
+  - src/reqguard/verification/safety.py   # safe_resolve — the containment guard
+  - src/reqguard/tools/repository.py      # the 7 read tools
+  - src/reqguard/tools/mutation.py        # apply + 6 gates
+  - src/reqguard/tools/diff.py
+  - src/reqguard/tools/filesystem.py
+  - src/reqguard/tools/git.py
+  - src/reqguard/tools/code_search.py
+  - tests/unit/test_safety.py
+  - tests/unit/test_repository.py
+  - tests/unit/test_mutation.py
+
+# ── Track D — opencode. Execution + verification. stdlib only. NO anthropic. ──
+owned_by_D:
+  - src/reqguard/tools/test_runner.py     # subprocess + exit-code taxonomy
+  - src/reqguard/sandbox.py
+  - src/reqguard/verification/verifier.py # the two-condition gate
+  - src/reqguard/verification/mutation_result.py
+  - tests/unit/test_test_runner.py
+  - tests/unit/test_sandbox.py
+  - tests/unit/test_verifier.py
+
+# ── Track B — Claude Code. Owns every Anthropic SDK call in the repo. ────────
+owned_by_B:
+  - src/reqguard/agent/client.py
+  - src/reqguard/agent/policy.py
+  - src/reqguard/agent/requirement_analyzer.py
+  - src/reqguard/agent/repository_investigator.py
+  - src/reqguard/agent/mutation_planner.py
+  - src/reqguard/agent/test_repairer.py
+  - src/reqguard/agent/prompts/**
+  - src/reqguard/tools/registry.py        # @beta_tool bindings over A's functions
+  - src/reqguard/evaluation/baseline.py   # the control arm — same SDK surface
+  - tests/unit/test_prompts_load.py
+  - tests/integration/test_stages.py
+
+# ── Track E — antigravity. The benchmark corpus. NO Anthropic import. ───────
+owned_by_E:
+  - benchmarks/**                         # 18 cases + validate.py
+  - src/reqguard/evaluation/ground_truth.py
+  - tests/unit/test_ground_truth.py
+
+# ── Track C — kiro_cli (dev hat). Measurement + rendering. NO anthropic. ────
+owned_by_C:
+  - src/reqguard/tracing/trajectory.py
+  - src/reqguard/evaluation/metrics.py
+  - src/reqguard/evaluation/benchmark.py
+  - src/reqguard/reporting/report.py
+  - src/reqguard/reporting/formatter.py
+  - src/reqguard/reporting/templates/**
+  - tests/unit/test_metrics.py
+  - tests/unit/test_trajectory.py
+  - tests/unit/test_report.py
+
+# ── Cross-track import rules. Checked by integrate.ps1. ────────────────────
+import_rules:
+  - rule: "Only Track B may import `anthropic`."
+    why: >
+      One track owns every model call. When an SDK shape changes, exactly one
+      worktree needs fixing. A stray `import anthropic` in A or C means the SDK
+      has leaked into code that must run in CI without an API key.
+    allow: [B]
+    deny: [A, C, D, E]
+    pattern: "^\\s*(import anthropic|from anthropic)"
+
+  - rule: "Tracks A and D may not import from reqguard.agent."
+    why: >
+      The deterministic core must stay runnable with no model and no key. This
+      is what lets Day 1 finish before anyone has spent a token.
+    deny_import: "reqguard.agent"
+    applies_to: [A, D]
+
+  - rule: "Tracks C and E may not import from reqguard.agent."
+    why: >
+      The evaluator must be re-runnable against stored artifacts. Re-scoring a
+      benchmark must never cost money or vary between runs.
+    deny_import: "reqguard.agent"
+    applies_to: [C, E]
+
+  - rule: "No track may edit files owned by S."
+    why: A contract change mid-flight silently invalidates every other track.
+    applies_to: [A, B, C, D, E]
+
+# ── Shared surface. The ONLY thing every track depends on. ─────────────────
+shared_contract:
+  files:
+    - src/reqguard/models.py
+    - src/reqguard/errors.py
+  frozen_at: "day-0"
+  change_process: docs/04-build-crew-protocol.md#6-contract-change-requests

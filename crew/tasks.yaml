@@ -1,0 +1,375 @@
+# ReqGuard — Task Board
+#
+# The Supervisor's source of truth. A task is dispatchable when every id in
+# `needs` has status: done. The supervisor computes that; it does not guess.
+#
+# status: todo | in_progress | blocked | review | done
+# gate:   the command that must exit 0 before status may become done.
+#         No gate, no done. A task without a passing gate is not finished,
+#         regardless of what the agent reports.
+
+version: 1
+spec: docs/03-implementation-manual.md
+
+# ═══ WAVE 0 — Supervisor only. Nothing runs in parallel until this is done. ═══
+tasks:
+  - id: S0.1
+    title: Freeze data contracts
+    owner: S
+    needs: []
+    files: [src/reqguard/models.py, src/reqguard/errors.py]
+    gate: "python -c \"import reqguard.models, reqguard.errors\""
+    status: done
+    note: >
+      Written before any track forks. Everything below depends on it and nothing
+      else is shared. This is the whole reason parallel work is safe.
+
+  - id: S0.2
+    title: Bootstrap repo, branches, worktrees
+    owner: S
+    needs: [S0.1]
+    gate: "git worktree list"
+    status: todo
+    run: crew/bootstrap.ps1
+
+  - id: S0.3
+    title: Scaffold package skeleton + pyproject
+    owner: S
+    needs: [S0.1]
+    files: [pyproject.toml, src/reqguard/__init__.py, src/reqguard/config.py]
+    gate: "uv pip install -e . && reqguard --help"
+    status: todo
+
+  # ═══ WAVE 1 — All three tracks run in parallel. No shared files. ═══════════
+
+  # ── Track A · OpenCode · deterministic core · needs no API key ─────────────
+  - id: A1
+    title: safe_resolve path containment
+    owner: A
+    needs: [S0.1]
+    files: [src/reqguard/verification/safety.py, tests/unit/test_safety.py]
+    gate: "pytest tests/unit/test_safety.py -q"
+    spec: "Doc 3 section 4.2"
+    status: todo
+    acceptance:
+      - "blocks ../ traversal"
+      - "blocks absolute paths outside root"
+      - "blocks symlink escape"
+      - "allows root itself"
+
+  - id: A2
+    title: The 7 repository read tools
+    owner: A
+    needs: [A1]
+    files: [src/reqguard/tools/repository.py, tests/unit/test_repository.py]
+    gate: "pytest tests/unit/test_repository.py -q"
+    spec: "Doc 3 section 4.1"
+    status: todo
+    acceptance:
+      - "list_files, read_file, search_code, find_symbol, find_references, inspect_tests, git_diff"
+      - "every path argument goes through safe_resolve"
+      - "git_diff returns '' on a non-git dir — never raises"
+      - "find_references docstring states it is regex-based, not scope-aware"
+
+  - id: A3
+    title: Mutation engine — apply + 6 gates
+    owner: A
+    needs: [A1]
+    files: [src/reqguard/tools/mutation.py, src/reqguard/tools/diff.py, tests/unit/test_mutation.py]
+    gate: "pytest tests/unit/test_mutation.py -q"
+    spec: "Doc 3 sections 6.3, 6.4, 6.5"
+    status: todo
+    critical: true
+    acceptance:
+      - "anchor_unique: rejects 0 matches and rejects >1 matches"
+      - "parses: rejects a mutant that fails ast.parse"
+      - "not_a_test_file: REJECTS test_*.py, *_test.py, conftest.py, anything under tests/"
+      - "in_sandbox: rejects a target outside the sandbox root"
+      - "small_diff: rejects a diff over max_diff_lines"
+      - "not_a_noop: rejects original == mutated"
+      - "returns a unified diff on success"
+    note: >
+      The not_a_test_file gate is the single assumption every number in the
+      submission rests on. If the engine can edit tests, "the tests didn't catch
+      it" is trivially achievable and the primary metric is worthless.
+
+  - id: A4
+    title: Test runner + exit-code taxonomy
+    owner: D
+    needs: [S0.1]
+    files: [src/reqguard/tools/test_runner.py, tests/unit/test_test_runner.py]
+    gate: "pytest tests/unit/test_test_runner.py -q"
+    spec: "Doc 3 sections 8.1, 8.2"
+    status: todo
+    critical: true
+    acceptance:
+      - "exit 0 -> RunStatus.OK"
+      - "exit 1 -> RunStatus.OK  (tests failed, but the run is valid)"
+      - "exit 2,3,4,5 -> ENVIRONMENT_ERROR — NOT a mutation kill"
+      - "timeout -> RunStatus.TIMEOUT, process group killed"
+      - "falls back to exit-code-only parsing when pytest-json-report is absent"
+    note: >
+      A missing dependency makes pytest exit 4. Read naively as "tests failed"
+      that scores as a mutation kill and the kill rate rises for free. This is
+      the most likely way the system lies to us.
+
+  - id: A5
+    title: Sandbox — copy, run, teardown
+    owner: D
+    needs: [A1]
+    files: [src/reqguard/sandbox.py, tests/unit/test_sandbox.py]
+    gate: "pytest tests/unit/test_sandbox.py -q"
+    spec: "Doc 3 section 7"
+    status: todo
+    acceptance:
+      - "copy strategy excludes .git, .venv, __pycache__, node_modules, caches"
+      - "teardown runs in `finally:` even when the body raises"
+      - "source repo is byte-identical after a mutated run"
+
+  - id: A6
+    title: Verifier — the two-condition gate
+    owner: D
+    needs: [A4, A5]
+    files: [src/reqguard/verification/verifier.py, tests/unit/test_verifier.py]
+    gate: "pytest tests/unit/test_verifier.py -q"
+    spec: "Doc 3 section 9"
+    status: todo
+    critical: true
+    acceptance:
+      - "verified only when passes_on_original AND kills_mutant"
+      - "`assert False` test is REJECTED (fails condition A)"
+      - "a test that passes everywhere is REJECTED (fails condition B)"
+      - "ENVIRONMENT_ERROR on either run -> verified is False, reason recorded"
+
+  # ── Track B · Claude Code · agent stages · owns every SDK call ─────────────
+  - id: B1
+    title: Client + per-stage model policy
+    owner: B
+    needs: [S0.1]
+    files: [src/reqguard/agent/client.py, src/reqguard/agent/policy.py]
+    gate: "python -m reqguard.agent.client --smoke"
+    spec: "Doc 3 sections 1, 1.1, 5.1"
+    status: todo
+    acceptance:
+      - "anthropic.Anthropic() zero-arg — never a hardcoded key"
+      - "model claude-opus-5"
+      - "thinking={'type':'adaptive'}; display left at default (omitted)"
+      - "effort inside output_config, per the EFFORT table"
+      - "NO budget_tokens anywhere — it is a 400 on Opus 5"
+      - "system block carries cache_control ephemeral; nothing interpolated into it"
+      - "no tenacity — the SDK already retries"
+
+  - id: B2
+    title: Stage 1 — Requirement Analyzer
+    owner: B
+    needs: [B1]
+    files: [src/reqguard/agent/requirement_analyzer.py, src/reqguard/agent/prompts/analyze.md]
+    gate: "pytest tests/integration/test_stages.py -k analyzer -q"
+    spec: "Doc 3 section 5.2"
+    status: todo
+    acceptance:
+      - "messages.parse with output_format=list[Requirement]"
+      - "extracts REQ-01 from benchmarks/case01"
+      - "skips unfalsifiable aspirations"
+
+  - id: B3
+    title: Stage 2 — Repository Investigator
+    owner: B
+    needs: [B1, A2]
+    files: [src/reqguard/agent/repository_investigator.py, src/reqguard/tools/registry.py, src/reqguard/agent/prompts/investigate.md]
+    gate: "pytest tests/integration/test_stages.py -k investigator -q"
+    spec: "Doc 3 sections 4.3, 5.3"
+    status: todo
+    acceptance:
+      - "tool_runner over the 7 tools from A2 — binds, does not reimplement"
+      - "tools emitted in a fixed sorted order (cache stability)"
+      - "locates ship_order in case01 with confidence high"
+      - "empty sites when no enforcement point exists — does not invent one"
+      - "raises ReqGuardInternalError on stop_reason == 'pause_turn'"
+
+  - id: B4
+    title: Stage 3 — Mutation Planner
+    owner: B
+    needs: [B1, B3]
+    files: [src/reqguard/agent/mutation_planner.py, src/reqguard/agent/prompts/plan.md]
+    gate: "pytest tests/integration/test_stages.py -k planner -q"
+    spec: "Doc 3 sections 5.4, 6.1, 6.2"
+    status: todo
+    critical: true
+    acceptance:
+      - "effort xhigh"
+      - "emits a valid MutationSpec that passes all six of A3's gates"
+      - "original_snippet is a verbatim substring of the target file"
+      - "semantic_change requires a non-empty rationale"
+
+  - id: B5
+    title: Stage 5 — Test Repairer
+    owner: B
+    needs: [B1, A6]
+    files: [src/reqguard/agent/test_repairer.py, src/reqguard/agent/prompts/repair.md]
+    gate: "pytest tests/integration/test_stages.py -k repairer -q"
+    spec: "Doc 3 section 5.5"
+    status: todo
+    acceptance:
+      - "produces a test that passes on original AND fails on mutant for case01"
+      - "follows the target suite's existing fixture and import conventions"
+      - "retries with the verifier's failure_reason fed back"
+
+  - id: B6
+    title: Baseline control arm
+    owner: B
+    needs: [B1, A2]
+    files: [src/reqguard/evaluation/baseline.py, src/reqguard/agent/prompts/baseline.md]
+    gate: "pytest tests/integration/test_stages.py -k baseline -q"
+    spec: "Doc 3 sections 5.6, 16"
+    status: todo
+    critical: true
+    acceptance:
+      - "SAME model as ReqGuard"
+      - "effort xhigh — the HIGHEST setting, deliberately"
+      - "same read-only tool surface"
+      - "prompt stays short — it is what a developer would actually type"
+    note: >
+      If ReqGuard wins, it must win on workflow. A handicapped baseline
+      invalidates the entire experiment and a judge will find it in 30 seconds.
+
+  # ── Track C · Kiro · evidence layer · needs no API key ────────────────────
+  - id: C1
+    title: Trajectory logger
+    owner: C
+    needs: [S0.1]
+    files: [src/reqguard/tracing/trajectory.py, tests/unit/test_trajectory.py]
+    gate: "pytest tests/unit/test_trajectory.py -q"
+    spec: "Doc 3 section 11"
+    status: todo
+    acceptance:
+      - "append-only JSONL, one event per line, round-trips"
+      - "types: tool_call, tool_result, decision, api_call, verdict, error"
+      - "api_call records request_id and the full usage object"
+      - "NO raw thinking / chain-of-thought is ever written (Doc 2 section 29)"
+      - "cache_read_input_tokens == 0 on the 2nd requirement emits a cache_miss error event"
+
+  - id: C2
+    title: Benchmark case 01 + ground truth schema
+    owner: E
+    needs: [S0.1]
+    files: [benchmarks/case01-cancelled-order-shipping/**, src/reqguard/evaluation/ground_truth.py]
+    gate: "cd benchmarks/case01-cancelled-order-shipping && pytest -q"
+    spec: "Doc 3 sections 15.1, 15.2"
+    status: todo
+    critical: true
+    acceptance:
+      - "suite is GREEN on unmutated code — exactly 2 passed"
+      - "no test constructs a cancelled order (that absence IS the case)"
+      - "ground_truth.json validates against the schema"
+    note: "This case is the template. Get it right; cases 02-15 are clones of it."
+
+  - id: C3
+    title: Benchmark cases 02-15 + 3 clean cases
+    owner: E
+    needs: [C2]
+    files: [benchmarks/**]
+    gate: "python benchmarks/validate.py"
+    spec: "Doc 3 section 15.3"
+    status: todo
+    acceptance:
+      - "15 defect cases per the category table"
+      - "3 clean cases — 2 cannot produce a meaningful false-positive rate"
+      - "case13-partial-fulfillment is present (the killer case, Doc 1 section 29)"
+
+  - id: C4
+    title: benchmarks/validate.py
+    owner: E
+    needs: [C2]
+    files: [benchmarks/validate.py]
+    gate: "python benchmarks/validate.py"
+    spec: "Doc 3 section 15.5"
+    status: todo
+    acceptance:
+      - "every case suite green on unmutated code"
+      - "every requirement has an explicit `protected` label"
+      - "every protected:false has a stated rationale"
+      - "case ids unique and matching directory names"
+      - "makes NO API calls — runs in CI"
+
+  - id: C5
+    title: Evaluator / metrics
+    owner: C
+    needs: [C4]
+    files: [src/reqguard/evaluation/metrics.py, src/reqguard/evaluation/benchmark.py, tests/unit/test_metrics.py]
+    gate: "pytest tests/unit/test_metrics.py -q"
+    spec: "Doc 3 sections 16.3, 17"
+    status: todo
+    critical: true
+    acceptance:
+      - "contains NO LLM call of any kind"
+      - "gap-detection recall/precision — comparable across both arms"
+      - "mutation kill rate + repair success rate — ReqGuard arm only"
+      - "clean-case false-positive rate"
+      - "inconclusive rate is REPORTED, never buried"
+      - "cost summed from trajectory usage records, never estimated"
+      - "re-asserts from recorded diffs that no mutation touched a test file"
+      - "records a SHA-256 of the benchmarks/ tree into metrics.json"
+
+  - id: C6
+    title: Reporting — terminal, JSON, summary.html
+    owner: C
+    needs: [C1]
+    files: [src/reqguard/reporting/**]
+    gate: "pytest tests/unit/test_report.py -q"
+    spec: "Doc 3 section 12"
+    status: todo
+    acceptance:
+      - "writes summary.html, findings.json, mutations.json, metrics.json, trajectory.jsonl"
+      - "summary.html is self-contained — inline CSS, zero external assets"
+      - "repairs written to the report dir, NEVER to the target repo"
+      - "terminal block matches Doc 1 section 16, and prints Inconclusive even at zero"
+
+  # ═══ WAVE 2 — Integration. Supervisor only, after all tracks merge. ════════
+  - id: S2.1
+    title: Orchestrator — wire A + B + C
+    owner: S
+    needs: [A3, A4, A5, A6, B2, B3, B4, B5, C1, C2]
+    files: [src/reqguard/agent/orchestrator.py]
+    gate: "pytest tests/integration/test_orchestrator.py -q"
+    spec: "Doc 3 section 10.2"
+    status: todo
+
+  - id: S2.2
+    title: CLI
+    owner: S
+    needs: [S2.1, C6]
+    files: [src/reqguard/cli/main.py]
+    gate: "reqguard --help && reqguard doctor --case benchmarks/case01-cancelled-order-shipping"
+    spec: "Doc 3 sections 13, 20"
+    status: todo
+
+  - id: S2.3
+    title: reqguard doctor — six kill criteria, green on case01
+    owner: S
+    needs: [S2.2]
+    gate: "reqguard doctor --case benchmarks/case01-cancelled-order-shipping"
+    spec: "Doc 3 section 20"
+    status: todo
+    critical: true
+    note: >
+      THE GO/NO-GO GATE. Doc 2 section 37. If this is not green at the end of
+      Day 2, follow the documented response — narrow scope — rather than pushing
+      on. The last row of that table says reconsider the project. It means it.
+
+  - id: S2.4
+    title: Docker + docker-compose
+    owner: S
+    needs: [S2.2]
+    files: [Dockerfile, docker-compose.yml]
+    gate: "docker compose build"
+    spec: "Doc 3 section 18"
+    status: todo
+
+  - id: S2.5
+    title: Full benchmark, both arms
+    owner: S
+    needs: [S2.3, B6, C5]
+    gate: "reqguard benchmark --arm both && reqguard evaluate"
+    status: todo
+    note: "The first number that may be quoted anywhere. Doc 3 section 17.1."
