@@ -50,9 +50,18 @@ def list_files(root: Path, glob: str = "**/*.py", limit: int = 200) -> list[str]
 
 
 def read_file(root: Path, path: str, start: int = 1, end: int | None = None) -> str:
-    """File contents with 1-indexed ``Lnn:`` line-number prefixes."""
+    """File contents with 1-indexed ``Lnn:`` line-number prefixes.
+
+    Recovers deterministically from missing, unreadable, or binary files by
+    returning an empty string — the caller (tool loop, MCP adapter) should
+    treat this as "no content" rather than a crash.
+    """
     target = safe_resolve(root, path)
-    lines = target.read_text(encoding="utf-8").splitlines()
+    try:
+        text = target.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+    lines = text.splitlines()
     start = max(1, start)
     end = len(lines) if end is None else min(end, len(lines))
     if start > end:
@@ -64,9 +73,17 @@ def read_file(root: Path, path: str, start: int = 1, end: int | None = None) -> 
 def search_code(
     root: Path, pattern: str, glob: str = "**/*.py", limit: int = 50
 ) -> list[dict]:
-    """Regex search over ``glob`` files. Returns ``[{file, line, text}]``."""
+    """Regex search over ``glob`` files. Returns ``[{file, line, text}]``.
+
+    If ``pattern`` is not a valid regular expression, returns an empty list
+    rather than propagating a raw ``re.error`` — the caller should treat this
+    as "no matches" and the model can be re-prompted with a corrected pattern.
+    """
     root = safe_resolve(root, ".")
-    rx = re.compile(pattern)
+    try:
+        rx = re.compile(pattern)
+    except re.error:
+        return []
     hits: list[dict] = []
     for p in sorted(root.glob(glob)):
         if not p.is_file() or _skip(p.relative_to(root)):
