@@ -1,0 +1,17 @@
+{
+  "case_id": "case16-rate-limit-exceeded",
+  "category": "api_error",
+  "difficulty": "medium",
+  "clean": false,
+  "requirements": [
+    {
+      "id": "REQ-16",
+      "statement": "Clients making more than 60 requests in a time window must receive a RateLimitExceededError.",
+      "severity": "high",
+      "protected": false,
+      "expected_mutation": "boundary_shift",
+      "expected": "survive",
+      "rationale": "The limiter checks if current > self.limit: raise RateLimitExceededError, but test suite only sends requests well below the limit."
+    }
+  ]
+}

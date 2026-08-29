@@ -1,0 +1,17 @@
+{
+  "case_id": "case02-user-role-permission",
+  "category": "authorization",
+  "difficulty": "easy",
+  "clean": false,
+  "requirements": [
+    {
+      "id": "REQ-02",
+      "statement": "Non-admin users cannot delete organization members.",
+      "severity": "high",
+      "protected": false,
+      "expected_mutation": "remove_guard",
+      "expected": "survive",
+      "rationale": "The guard if actor.role != 'admin' exists in remove_member(), but all tests use admin actors. No test asserts rejection for non-admin actors."
+    }
+  ]
+}

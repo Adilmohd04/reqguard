@@ -1,0 +1,17 @@
+{
+  "case_id": "case09-discount-code-expiration",
+  "category": "business_rule",
+  "difficulty": "medium",
+  "clean": false,
+  "requirements": [
+    {
+      "id": "REQ-09",
+      "statement": "Expired promotional discount codes cannot be applied to checkout totals.",
+      "severity": "high",
+      "protected": false,
+      "expected_mutation": "remove_guard",
+      "expected": "survive",
+      "rationale": "Expiration check current_time > coupon.expires_at is enforced in code, but all test cases supply current_time before expiration."
+    }
+  ]
+}

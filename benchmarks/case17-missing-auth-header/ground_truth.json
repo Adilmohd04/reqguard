@@ -1,0 +1,14 @@
+{
+  "case_id": "case17-missing-auth-header",
+  "category": "api_error",
+  "difficulty": "medium",
+  "clean": true,
+  "requirements": [
+    {
+      "id": "REQ-17",
+      "statement": "API requests missing the 'Authorization' header or supplying a blank token must raise AuthenticationRequiredError.",
+      "severity": "high",
+      "protected": true
+    }
+  ]
+}

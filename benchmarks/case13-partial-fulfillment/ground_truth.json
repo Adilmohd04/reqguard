@@ -1,0 +1,17 @@
+{
+  "case_id": "case13-partial-fulfillment",
+  "category": "semantic",
+  "difficulty": "hard",
+  "clean": false,
+  "requirements": [
+    {
+      "id": "REQ-13",
+      "statement": "A partially fulfilled order must never be reported as completed.",
+      "severity": "high",
+      "protected": false,
+      "expected_mutation": "semantic_change",
+      "expected": "survive",
+      "rationale": "Tests verify boundary values (0 shipped -> pending, 100 shipped -> completed). No test checks partial fulfillment (e.g., 80 shipped of 100 ordered), allowing semantic mutation to report completed."
+    }
+  ]
+}

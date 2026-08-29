@@ -1,0 +1,17 @@
+{
+  "case_id": "case18-tax-jurisdiction-rounding",
+  "category": "semantic",
+  "difficulty": "hard",
+  "clean": false,
+  "requirements": [
+    {
+      "id": "REQ-18",
+      "statement": "Sales tax calculation must apply half-to-even rounding (banker's rounding) to cent fractions to prevent systematic cumulative bias.",
+      "severity": "high",
+      "protected": false,
+      "expected_mutation": "semantic_change",
+      "expected": "survive",
+      "rationale": "compute_sales_tax uses ROUND_HALF_EVEN, but the tests only check whole and standard percentage values where half-cent ties never occur."
+    }
+  ]
+}

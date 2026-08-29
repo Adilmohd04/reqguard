@@ -1,0 +1,17 @@
+{
+  "case_id": "case03-resource-ownership",
+  "category": "authorization",
+  "difficulty": "medium",
+  "clean": false,
+  "requirements": [
+    {
+      "id": "REQ-03",
+      "statement": "Users can only edit documents that they own or are explicitly shared with them.",
+      "severity": "high",
+      "protected": false,
+      "expected_mutation": "remove_guard",
+      "expected": "survive",
+      "rationale": "Tests verify owner and collaborator edits, but no test verifies rejection when an unauthorized third-party user attempts modification."
+    }
+  ]
+}

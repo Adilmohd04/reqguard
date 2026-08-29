@@ -1,0 +1,17 @@
+{
+  "case_id": "case07-invoice-payment-state",
+  "category": "state_transition",
+  "difficulty": "medium",
+  "clean": false,
+  "requirements": [
+    {
+      "id": "REQ-07",
+      "statement": "Invoices marked as 'paid' or 'void' cannot accept additional payments.",
+      "severity": "high",
+      "protected": false,
+      "expected_mutation": "allow_transition",
+      "expected": "survive",
+      "rationale": "The guard in pay_invoice() checks if invoice.status in ('paid', 'void'), but all tests begin with open invoices and never attempt payment on closed ones."
+    }
+  ]
+}

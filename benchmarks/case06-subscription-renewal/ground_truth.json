@@ -1,0 +1,17 @@
+{
+  "case_id": "case06-subscription-renewal",
+  "category": "state_transition",
+  "difficulty": "medium",
+  "clean": false,
+  "requirements": [
+    {
+      "id": "REQ-06",
+      "statement": "Cancelled or expired subscriptions cannot be automatically renewed.",
+      "severity": "high",
+      "protected": false,
+      "expected_mutation": "allow_transition",
+      "expected": "survive",
+      "rationale": "The status check in renew_subscription() prevents renewing cancelled/expired subscriptions, but the test suite only exercises active subscriptions."
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "case_id": "case15-idempotency-key-replay",
+  "category": "api_error",
+  "difficulty": "medium",
+  "clean": false,
+  "requirements": [
+    {
+      "id": "REQ-15",
+      "statement": "Replaying an API request with an existing idempotency key must return the cached response without re-executing the operation handler.",
+      "severity": "high",
+      "protected": false,
+      "expected_mutation": "remove_guard",
+      "expected": "survive",
+      "rationale": "The caching guard if key in self._cache: exists, but tests only verify that calling with new keys returns expected values without asserting replay suppresses execution."
+    }
+  ]
+}

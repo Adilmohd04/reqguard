@@ -1,0 +1,17 @@
+{
+  "case_id": "case10-inventory-overdraw",
+  "category": "business_rule",
+  "difficulty": "medium",
+  "clean": false,
+  "requirements": [
+    {
+      "id": "REQ-10",
+      "statement": "An order reservation cannot exceed available inventory stock.",
+      "severity": "high",
+      "protected": false,
+      "expected_mutation": "comparison_change",
+      "expected": "survive",
+      "rationale": "reserve_stock() checks requested_qty > item.available, but test suite only exercises requested_qty <= available."
+    }
+  ]
+}

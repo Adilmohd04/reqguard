@@ -1,0 +1,14 @@
+{
+  "case_id": "case05-api-token-scope",
+  "category": "authorization",
+  "difficulty": "medium",
+  "clean": true,
+  "requirements": [
+    {
+      "id": "REQ-05",
+      "statement": "API requests attempting write operations must possess the 'write' token scope.",
+      "severity": "high",
+      "protected": true
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "case_id": "case12-email-format-validation",
+  "category": "validation",
+  "difficulty": "easy",
+  "clean": false,
+  "requirements": [
+    {
+      "id": "REQ-12",
+      "statement": "Email addresses submitted for registration must contain both a non-empty username and a valid domain separated by '@'.",
+      "severity": "high",
+      "protected": false,
+      "expected_mutation": "remove_validation",
+      "expected": "survive",
+      "rationale": "The regex validation guard is implemented in validate_user_email(), but test suite only supplies valid email formats."
+    }
+  ]
+}

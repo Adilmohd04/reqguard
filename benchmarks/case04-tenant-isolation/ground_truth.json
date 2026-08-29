@@ -1,0 +1,17 @@
+{
+  "case_id": "case04-tenant-isolation",
+  "category": "authorization",
+  "difficulty": "medium",
+  "clean": false,
+  "requirements": [
+    {
+      "id": "REQ-04",
+      "statement": "Data access must be strictly isolated to the requesting tenant.",
+      "severity": "high",
+      "protected": false,
+      "expected_mutation": "remove_guard",
+      "expected": "survive",
+      "rationale": "The tenant isolation check is present in get_record(), but test suite only queries records using their true owning tenant_id."
+    }
+  ]
+}

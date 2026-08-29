@@ -1,0 +1,14 @@
+{
+  "case_id": "case11-max-refund-limit",
+  "category": "business_rule",
+  "difficulty": "medium",
+  "clean": true,
+  "requirements": [
+    {
+      "id": "REQ-11",
+      "statement": "Total refunded amount on a transaction cannot exceed the original charged amount.",
+      "severity": "high",
+      "protected": true
+    }
+  ]
+}

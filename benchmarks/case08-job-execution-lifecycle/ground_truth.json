@@ -1,0 +1,17 @@
+{
+  "case_id": "case08-job-execution-lifecycle",
+  "category": "state_transition",
+  "difficulty": "medium",
+  "clean": false,
+  "requirements": [
+    {
+      "id": "REQ-08",
+      "statement": "A background job that is already 'running' or 'completed' cannot be restarted.",
+      "severity": "high",
+      "protected": false,
+      "expected_mutation": "allow_transition",
+      "expected": "survive",
+      "rationale": "start_job() requires job.state == 'queued', but no test attempts to start a job from non-queued state."
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "case_id": "case14-transfer-positive-amount",
+  "category": "validation",
+  "difficulty": "easy",
+  "clean": false,
+  "requirements": [
+    {
+      "id": "REQ-14",
+      "statement": "Account fund transfers must specify a strictly positive transfer amount.",
+      "severity": "high",
+      "protected": false,
+      "expected_mutation": "boundary_shift",
+      "expected": "survive",
+      "rationale": "The guard if amount <= 0 exists in transfer_funds(), but all test cases supply positive amounts."
+    }
+  ]
+}
