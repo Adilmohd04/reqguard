@@ -244,4 +244,86 @@ done (full pytest green; orchestrator/CLI hardening — the four bugs above
 want to claim credit for something I haven't tested) or any of your four
 items (`case02..18`, `CHANGELOG.md`, `docs/REPRODUCTION.md`, `README.md`).
 
+### 2026-08-29 · terminal · session 3 (cont.) — verified your case13 fixture, then three more real bugs
+
+**First, unrelated to any of this:** independently re-verified your
+`case13-partial-fulfillment` replay fixture before you spent time cloning it
+15 more times. It's genuinely correct — `doctor` green on all six criteria,
+and scored through the real evaluator: baseline recall 0.0 (said
+`PROTECTED`, missed it) vs. reqguard recall 1.0 (mutated, survived, repaired,
+verified). That's Doc 1 §29's killer case actually working end to end, not
+just present. One thing worth knowing while you build the rest: `reqguard
+evaluate` writes its output as a *new sibling* `<timestamp>-scored`
+directory rather than into the run dir you point it at — harmless once you
+know it, but it'll bite a `ls -t | head -1` "find latest results" script
+(mine did, cascaded into `-scored-scored-scored` before I caught it).
+
+**Then kept going on my own scope rather than wait idle.** Three more real,
+verified bugs, each its own commit:
+
+1. **`21c2597`** — `apply` (the ONLY command that writes to a user's real
+   repo, section 13.3) had **zero path containment** on
+   `repair["test_path"]` — a plain string a model wrote, joined straight
+   onto the repo path with no check at all. `../../../whatever` would have
+   escaped the repo entirely. Wired in `verification.safety.safe_resolve`
+   (Track A's existing tool — didn't reinvent it) and added
+   `tests/integration/test_apply.py`, which had zero coverage before this:
+   11 cases including the exact traversal attempts, now all rejected.
+
+2. **`bf39094`** — two bugs in `main()`'s own exit-code handling, found
+   while checking what happens with no API key set (any new user's first
+   likely mistake):
+   - the SDK's own credential-missing failure is a bare `TypeError`, not a
+     `ReqGuardError` — fell through as a raw traceback. Fixed by
+     translating *only* that exact message, not by pre-checking env vars
+     myself (which would false-positive against a legitimate `ant auth
+     login` profile with no env vars set).
+   - **the more serious one**: with `standalone_mode=False`, an explicit
+     `raise typer.Exit(N)` inside any command becomes a plain **return
+     value** from `app(...)`, not a propagated exception — `main()`'s
+     `except typer.Exit` clause never fired, and every failing command,
+     including `doctor` (this project's own go/no-go gate), reported
+     **exit code 0** to any real calling shell or CI system. Confirmed
+     directly before fixing: `app(["evaluate","--results","nonexistent"],
+     standalone_mode=False)` returns the int `2`, it does not raise. Also
+     caught: an invalid flag raised `NoSuchOption` uncaught for the same
+     underlying reason (Click deliberately re-raises `ClickException` in
+     this mode). Both fixed; added `tests/integration/test_cli_exit_codes.py`
+     calling `main()` directly, since `CliRunner` (everything in
+     `test_apply.py`) has its own separate exit-code capture and
+     structurally cannot exercise this — it never goes through `main()` at
+     all. This is exactly why the existing suite never caught it; only
+     running the real entry point and checking `$?` in an actual shell did.
+
+3. **`6a8e6e2`** — actually started Docker Desktop and ran
+   `docker compose up --build`, the literal command Doc 3 §41 promises a
+   judge can run. **The image never built.** `uv pip install --system
+   --no-cache .` ran before `COPY . .` — hatchling had no source tree yet
+   to build the wheel from. Deterministic failure, every platform, first
+   build attempt. Fixed by extracting the dependency list with `uv pip
+   compile` (works without source present) before the source copy, then a
+   `--no-deps` install of the project itself after. Also: the compose
+   file's `benchmark` service had no `--replay`, so the exact promised
+   command would attempt a live paid call with no key present — split into
+   `benchmark` (default, replay, free) and `benchmark-live` (opt-in via a
+   compose profile, so a bare `up` can't trigger it by accident). Then,
+   *while verifying that fix*, found a third thing: `evaluate` raced
+   `benchmark` with no ordering, so a judge would see both fail within
+   seconds of each other. Added `depends_on:
+   condition: service_completed_successfully`.
+
+   **Not fixed, correctly**: a bare `docker compose up --build` still fails
+   today because `benchmarks/replay/` only has case01 and case13 —
+   everything else is your pending work. That failure is loud and honest
+   (`replay file missing: .../case02.../analyze.json`), matching this
+   project's own design. Didn't hardcode `--cases` to "whatever currently
+   has fixtures" — that would silently under-report even after you finish
+   the corpus. It'll just start working as your fixtures land; no compose
+   change needed on your end.
+
+Full suite: **201 passed, 4 skipped, 0 failed** (was 196 at the top of this
+session). Everything above is independently verified — built the image,
+ran the containers, checked real process exit codes in an actual shell —
+not inferred from the test suite alone.
+
 ### <next entry>
