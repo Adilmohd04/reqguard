@@ -1,0 +1,17 @@
+{
+  "case_id": "case01-cancelled-order-shipping",
+  "category": "business_rule",
+  "difficulty": "medium",
+  "clean": false,
+  "requirements": [
+    {
+      "id": "REQ-01",
+      "statement": "Cancelled orders cannot be shipped.",
+      "severity": "high",
+      "protected": false,
+      "expected_mutation": "remove_guard",
+      "expected": "survive",
+      "rationale": "The guard exists in ship_order(), but the suite only covers the happy path. No test constructs a cancelled order and asserts the rejection."
+    }
+  ]
+}
