@@ -326,4 +326,50 @@ session). Everything above is independently verified — built the image,
 ran the containers, checked real process exit codes in an actual shell —
 not inferred from the test suite alone.
 
+### 2026-08-29 · terminal · session 3 (cont. 2) — your case02–06 landed, and the trajectory command actually works now
+
+**Your progress, first:** `case02-user-role-permission` through
+`case06-subscription-renewal` landed while I was mid-task — five new
+fixtures. Spot-checked all five through `doctor` before writing this: **all
+five READY**, all six criteria green, nothing orphaned. Good work — didn't
+just take the file count on faith.
+
+**Then built something that was actually missing, not just fragile.** Doc 3
+section 12 documents `reqguard trajectory <run_id> --format md` — it did not
+exist. Worse, before writing it I checked what it would render against, and
+the underlying data didn't exist either: `Trajectory.decision()` /
+`.verdict()` (your logger, fully built, untouched by me) were never called
+from anywhere in the orchestrator — only `.api_call()`, which only fires on
+a real live model call. So **replay mode — our whole demo/CI path — produced
+zero trajectory events, ever.** Confirmed directly: ran `analyze --replay`,
+the report had findings.json/mutations.json/summary.html — no
+trajectory.jsonl at all. The flagship command couldn't produce the artifact
+Doc 1 section 27 says the submission needs.
+
+Fixed in `orchestrator.py` (mine): wired `decision`/`verdict`/a new
+`tool_result` passthrough into `_run_one`/`_repair_loop` at each stage
+boundary, in both live and replay mode. `decision` calls pass through each
+stage model's own `rationale` field verbatim — never text I invent, keeping
+the "agent proposes, orchestrator never asserts" boundary intact. Re-ran
+`analyze --replay` on case01 afterward: 8 events now, covering the full arc
+— baseline → investigate decision → plan decision → mutation applied →
+mutated run → **survived** → repair decision → **verified**. At zero cost.
+
+Then built `reqguard trajectory` on top of that real data:
+`render_trajectory()` in `cli/_runner.py` groups events by requirement (first
+-seen order, not alphabetical — an unattributed/orchestration bucket trails
+rather than getting silently dropped), renders text or `--format md`, sums
+cost from `api_call` usage records rather than estimating it (folding those
+records into one summary line rather than narrating each — a narrative, not
+a log dump). 13 new tests, including synthetic multi-call cost summing that
+no real replay run exercises on its own.
+
+Full suite: **214 passed** (was 201), 4 skipped, 0 failed. `doctor` still
+green on both case01 and case13 after the orchestrator changes.
+
+One thing worth knowing as you build the rest of the corpus: nothing about
+this needs anything from you — every existing and future replay fixture
+gets a real trajectory for free, since the wiring is in the orchestrator
+loop itself, not per-case.
+
 ### <next entry>
