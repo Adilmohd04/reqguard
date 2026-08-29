@@ -1,0 +1,13 @@
+{
+  "id": "MUT-01",
+  "requirement_id": "REQ-01",
+  "mutation_type": "remove_guard",
+  "target_file": "src/orders/service.py",
+  "target_symbol": "ship_order",
+  "original_snippet": "    if order.status == \"cancelled\":            # \u2190 the enforcement point\n        raise OrderCancelledError(order.id)\n",
+  "mutated_snippet": "",
+  "description": "Remove the cancelled-order guard from ship_order",
+  "expected_violation": "A cancelled order is shipped instead of rejected",
+  "violation_scenario": "ship_order(Order(id='C1', status='cancelled', quantity=1)) returns an order with status 'shipped' and raises nothing.",
+  "rationale": "Deleting the two guard lines is the smallest plausible change that lets a cancelled order ship."
+}

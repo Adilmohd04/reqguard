@@ -1,0 +1,19 @@
+{
+  "requirement_id": "REQ-01",
+  "sites": [
+    {
+      "file": "src/orders/service.py",
+      "symbol": "ship_order",
+      "start_line": 12,
+      "end_line": 13,
+      "enforcement_snippet": "if order.status == \"cancelled\":\n    raise OrderCancelledError(order.id)",
+      "confidence": "high"
+    }
+  ],
+  "covering_tests": [
+    "tests/test_orders.py::test_open_order_ships",
+    "tests/test_orders.py::test_ship_returns_the_order"
+  ],
+  "domain_notes": "Order.status is a free string in {open, cancelled, shipped}. ship_order is the only transition into 'shipped' and holds the sole cancellation guard; neither existing test constructs a cancelled order.",
+  "rationale": "Selected ship_order because it contains the only cancelled-status guard for the requirement."
+}

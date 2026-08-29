@@ -1,0 +1,14 @@
+[
+  {
+    "id": "REQ-01",
+    "statement": "A cancelled order cannot be shipped. Attempting to ship a\ncancelled order must be rejected.",
+    "behavior": {
+      "precondition": "order.status == \"cancelled\"",
+      "prohibited_action": "ship_order(order)",
+      "expected_result": "operation rejected"
+    },
+    "category": "state_transition",
+    "severity": "high",
+    "source_location": "requirements.md:L3"
+  }
+]

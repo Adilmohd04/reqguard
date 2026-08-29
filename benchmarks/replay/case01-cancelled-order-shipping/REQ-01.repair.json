@@ -1,0 +1,8 @@
+{
+  "requirement_id": "REQ-01",
+  "mutation_id": "MUT-01",
+  "test_path": "tests/test_orders_cancelled.py",
+  "test_source": "import pytest\nfrom orders.service import Order, ship_order, OrderCancelledError\n\n\ndef test_cancelled_order_cannot_be_shipped():\n    order = Order(id=\"C1\", status=\"cancelled\", quantity=1)\n    with pytest.raises(OrderCancelledError):\n        ship_order(order)\n",
+  "explanation": "Builds the cancelled precondition the requirement names and asserts ship_order rejects it. No existing test constructs a cancelled order, which is why the guard removal survived.",
+  "rationale": "pytest.raises(OrderCancelledError) on a cancelled order is the assertion that detects the missing guard."
+}

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReqGuard report — {{ generated_at }}</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 2rem;
+         background: #fbfbfa; color: #1a1a1a; }
+  @media (prefers-color-scheme: dark) { body { background: #17171a; color: #e8e8e8; } }
+  h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+  .sub { opacity: .6; margin-bottom: 1.5rem; }
+  .cards { display: flex; flex-wrap: wrap; gap: .75rem; margin-bottom: 1.5rem; }
+  .card { border: 1px solid rgba(128,128,128,.3); border-radius: 8px; padding: .75rem 1rem; min-width: 7rem; }
+  .card .n { font-size: 1.6rem; font-weight: 600; }
+  .card .l { opacity: .7; font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
+  table { border-collapse: collapse; width: 100%; margin-bottom: 2rem; }
+  th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid rgba(128,128,128,.25);
+           vertical-align: top; }
+  th { font-size: .75rem; text-transform: uppercase; opacity: .6; }
+  .badge { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .75rem;
+           font-weight: 600; }
+  .PROTECTED { background: #d8f3dc; color: #1b4332; }
+  .INSUFFICIENTLY_PROTECTED { background: #ffd6d6; color: #7d1128; }
+  .REPAIRED { background: #d0e8ff; color: #0b3d69; }
+  .INCONCLUSIVE { background: #eee; color: #444; }
+  pre { background: rgba(128,128,128,.12); padding: .6rem; border-radius: 6px; overflow-x: auto;
+        font-size: .8rem; margin: .3rem 0 0; }
+  details summary { cursor: pointer; }
+</style>
+</head>
+<body>
+<h1>ReqGuard report</h1>
+<div class="sub">generated {{ generated_at }} · {{ repo }}</div>
+
+<div class="cards">
+  <div class="card"><div class="n">{{ s.analyzed }}</div><div class="l">Analyzed</div></div>
+  <div class="card"><div class="n">{{ s.protected }}</div><div class="l">Protected</div></div>
+  <div class="card"><div class="n">{{ s.gaps }}</div><div class="l">Potential gaps</div></div>
+  <div class="card"><div class="n">{{ s.repaired }}</div><div class="l">Repaired</div></div>
+  <div class="card"><div class="n">{{ s.inconclusive }}</div><div class="l">Inconclusive</div></div>
+  <div class="card"><div class="n">{{ s.high_risk_gaps }}</div><div class="l">High-risk gaps</div></div>
+</div>
+
+<table>
+  <thead><tr><th>Requirement</th><th>Severity</th><th>Status</th><th>Detail</th></tr></thead>
+  <tbody>
+  {% for v in verdicts %}
+    <tr>
+      <td><strong>{{ v.requirement.id }}</strong><br><span style="opacity:.7">{{ v.requirement.statement }}</span></td>
+      <td>{{ v.requirement.severity.value }}</td>
+      <td><span class="badge {{ v.status }}">{{ v.status.replace("_", " ") }}</span></td>
+      <td>
+        {% if v.inconclusive_reason %}{{ v.inconclusive_reason }}{% endif %}
+        {% if v.mutation %}
+          <details><summary>mutation: {{ v.mutation.mutation_type.value }} — {{ v.mutation.description }}</summary>
+          {% if v.result and v.result.diff %}<pre>{{ v.result.diff }}</pre>{% endif %}</details>
+        {% endif %}
+        {% if v.repair %}
+          <details><summary>repair test — {{ v.repair.test_path }}{% if v.verification and not v.verification.verified %} (unverified){% endif %}</summary>
+          <pre>{{ v.repair.test_source }}</pre></details>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+{% if metrics %}
+<h2>Metrics</h2>
+<pre>{{ metrics }}</pre>
+{% endif %}
+
+<p style="opacity:.5;font-size:.8rem">A generated report — not a web application. Self-contained, no external assets.</p>
+</body>
+</html>
