@@ -247,9 +247,19 @@ def cmd_gate(task_id: str) -> int:
 # commands are the collision guard in that mode.
 
 def working_tree_files() -> list[str]:
-    """Modified + staged + untracked paths in the shared working tree."""
-    out = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT,
-                         capture_output=True, text=True)
+    """Modified + staged + untracked paths in the shared working tree.
+
+    `--untracked-files=all` is mandatory here, not cosmetic: without it git
+    collapses a wholly-untracked directory to a single `dir/` porcelain entry,
+    so exact ownership patterns cannot match the owned files inside it. `guard`
+    then reports them as ``owned by ?`` and `stage` silently omits them. Asking
+    for every untracked file expands the directory to individual paths so
+    ownership matching sees the real files.
+    """
+    out = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=ROOT, capture_output=True, text=True,
+    )
     files = []
     for line in out.stdout.splitlines():
         if len(line) > 3:
