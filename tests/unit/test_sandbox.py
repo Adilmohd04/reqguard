@@ -306,8 +306,15 @@ class TestSandboxEdgeCases:
             src = repo / "src"
             src.mkdir()
             (src / "real_file.py").write_text("x = 1")
-            # Create a symlink
-            (src / "link_file.py").symlink_to("real_file.py")
+            # Create a symlink. On Windows this needs Developer Mode or an
+            # elevated process (SeCreateSymbolicLinkPrivilege) — absent that,
+            # os.symlink itself raises before the sandbox code under test is
+            # ever reached. That's an environment capability gap, not a
+            # sandbox defect, so skip rather than fail.
+            try:
+                (src / "link_file.py").symlink_to("real_file.py")
+            except OSError as e:
+                pytest.skip(f"cannot create symlinks in this environment: {e}")
 
             (repo / "pyproject.toml").write_text("")
 

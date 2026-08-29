@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -145,8 +146,19 @@ def run_tests(
     parsing. Uses start_new_session=True so timeout can kill the whole process group.
     """
     # Prepare the command with JSON report output
+    #
+    # shlex.split() in its default POSIX mode treats backslash as an escape
+    # character. test_command is frequently DEFAULT_TEST_COMMAND, i.e.
+    # f"{sys.executable} -m pytest" — and sys.executable on Windows is an
+    # absolute path full of backslashes (C:\Users\...\python.exe). POSIX-mode
+    # splitting silently eats every one of them, producing a mangled path
+    # that CreateProcess can't find ([WinError 2]), which subprocess.run
+    # then reports as FileNotFoundError -> misclassified as exit 2
+    # (ENVIRONMENT_ERROR) rather than actually running the suite. Non-POSIX
+    # mode leaves backslashes alone; it is the correct mode on every platform
+    # for a command string that was never shell-quoted to begin with.
     report_file = sandbox / ".pytest_report.json"
-    cmd_parts = shlex.split(test_command)
+    cmd_parts = shlex.split(test_command, posix=(os.name != "nt"))
     cmd_parts.extend(["-s", "--json-report", f"--json-report-file={report_file}"])
 
     # Environment: ensure we can find pytest
@@ -154,6 +166,21 @@ def run_tests(
     # Add sandbox to PYTHONPATH so local modules are importable
     pythonpath = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = str(sandbox) + (os.pathsep + pythonpath if pythonpath else "")
+
+    # Config.testing.command defaults to the bare string "pytest", which only
+    # resolves via PATH -- true in an activated venv, false whenever the
+    # caller invokes an interpreter directly (`.venv/Scripts/python.exe ...`,
+    # many CI setups, an IDE terminal that never sourced activate). When that
+    # happens CreateProcess/execvp can't find it, subprocess.run raises
+    # FileNotFoundError, and the run is silently misclassified as
+    # ENVIRONMENT_ERROR before pytest ever starts -- the single case this
+    # module exists to prevent (see the module docstring), just one layer
+    # further out. Rescue only the exact bare-"pytest" case (never a custom
+    # multi-word command a user configured on purpose, and never an
+    # already-qualified interpreter path) by substituting the interpreter
+    # that is actually running this process.
+    if cmd_parts and cmd_parts[0] == "pytest" and shutil.which("pytest", path=env.get("PATH")) is None:
+        cmd_parts = [sys.executable, "-m", "pytest", *cmd_parts[1:]]
 
     timed_out = False
     start_time = time.perf_counter()
@@ -174,8 +201,15 @@ def run_tests(
         exit_code = proc.returncode
         stdout = proc.stdout
         stderr = proc.stderr
-    except FileNotFoundError as e:
-        # Sandbox directory doesn't exist or pytest not found
+    except OSError as e:
+        # Sandbox directory doesn't exist, or the interpreter/pytest wasn't
+        # found. The concrete exception varies by platform for the same
+        # condition: POSIX raises FileNotFoundError for a missing cwd;
+        # Windows raises NotADirectoryError ([WinError 267]) for the same
+        # case and FileNotFoundError ([WinError 2]) for a missing
+        # executable. Both are OSError subclasses and neither overlaps
+        # subprocess.TimeoutExpired (a SubprocessError), so one broad
+        # except here covers every OS's spelling of "couldn't even start."
         exit_code = 2
         stderr = str(e)
         stdout = ""
