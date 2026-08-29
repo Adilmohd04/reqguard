@@ -295,6 +295,88 @@ def test_benchmarks_sha256_ignores_results_dir(tmp_path: Path) -> None:
     assert M.benchmarks_tree_sha256(root) == h1  # results excluded
 
 
+def test_benchmarks_sha256_ignores_pytest_python_cache_artifacts(
+    tmp_path: Path,
+) -> None:
+    # Review defect: normal validation/test runs create __pycache__/*.pyc,
+    # .pytest_cache, and other caches. These MUST NOT change the freeze hash.
+    root = tmp_path / "benchmarks"
+    case = root / "case01"
+    case.mkdir(parents=True)
+    case.joinpath("service.py").write_text("def f(): return 1\n", encoding="utf-8")
+    case.joinpath("ground_truth.json").write_text('{"x": 1}', encoding="utf-8")
+    h1 = M.benchmarks_tree_sha256(root)
+
+    # simulate what pytest / python leave behind
+    pycache = case / "__pycache__"
+    pycache.mkdir()
+    pycache.joinpath("service.cpython-312.pyc").write_bytes(b"\x00\x01volatile")
+    (case / ".pytest_cache").mkdir()
+    (case / ".pytest_cache" / "CACHEDIR.TAG").write_text("x", encoding="utf-8")
+    (root / ".mypy_cache").mkdir()
+    (root / ".mypy_cache" / "cache.data").write_text("y", encoding="utf-8")
+    (root / ".ruff_cache").mkdir()
+    (root / ".ruff_cache" / "z").write_text("z", encoding="utf-8")
+    # a stray compiled file not inside __pycache__
+    case.joinpath("stray.pyc").write_bytes(b"\x00compiled")
+
+    assert M.benchmarks_tree_sha256(root) == h1  # unchanged by any of the above
+
+
+def test_benchmarks_sha256_sensitive_to_source_change(tmp_path: Path) -> None:
+    root = tmp_path / "benchmarks"
+    case = root / "case01"
+    case.mkdir(parents=True)
+    case.joinpath("service.py").write_text("def f(): return 1\n", encoding="utf-8")
+    h1 = M.benchmarks_tree_sha256(root)
+    case.joinpath("service.py").write_text("def f(): return 2\n", encoding="utf-8")
+    assert M.benchmarks_tree_sha256(root) != h1  # corpus source edit is visible
+
+
+def test_benchmarks_sha256_sensitive_to_ground_truth_change(tmp_path: Path) -> None:
+    root = tmp_path / "benchmarks"
+    case = root / "case01"
+    case.mkdir(parents=True)
+    gt = case / "ground_truth.json"
+    gt.write_text('{"protected": true}', encoding="utf-8")
+    h1 = M.benchmarks_tree_sha256(root)
+    gt.write_text('{"protected": false}', encoding="utf-8")
+    assert M.benchmarks_tree_sha256(root) != h1  # ground-truth edit is visible
+
+
+def test_benchmarks_sha256_sensitive_to_new_source_file(tmp_path: Path) -> None:
+    root = tmp_path / "benchmarks"
+    case = root / "case01"
+    case.mkdir(parents=True)
+    case.joinpath("service.py").write_text("x\n", encoding="utf-8")
+    h1 = M.benchmarks_tree_sha256(root)
+    # adding a real .py source file (not compiled) must change the hash
+    case.joinpath("extra.py").write_text("y\n", encoding="utf-8")
+    assert M.benchmarks_tree_sha256(root) != h1
+
+
+def test_benchmarks_sha256_stable_before_and_after_running(tmp_path: Path) -> None:
+    # End-to-end of the review's exact concern: the SAME committed corpus must
+    # get the SAME hash before and after a run leaves cache artifacts behind.
+    root = tmp_path / "benchmarks"
+    case = root / "case13-partial-fulfillment"
+    case.mkdir(parents=True)
+    case.joinpath("service.py").write_text("def s(): ...\n", encoding="utf-8")
+    case.joinpath("ground_truth.json").write_text('{"id": "REQ-13"}',
+                                                   encoding="utf-8")
+    before = M.benchmarks_tree_sha256(root)
+
+    # "run" side effects
+    (case / "__pycache__").mkdir()
+    (case / "__pycache__" / "service.cpython-312.pyc").write_bytes(b"bytecode")
+    (root / "results" / "20260829T130000Z").mkdir(parents=True)
+    (root / "results" / "20260829T130000Z" / "metrics.json").write_text(
+        '{"benchmarks_sha256": "..."}', encoding="utf-8")
+
+    after = M.benchmarks_tree_sha256(root)
+    assert before == after
+
+
 def test_metrics_json_records_tree_hash(tmp_path: Path) -> None:
     doc = evaluate_run(
         [ArmArtifacts(arm="reqguard", is_reqguard=True)],

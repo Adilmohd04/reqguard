@@ -380,22 +380,71 @@ def _paths_in_diff(diff: str) -> list[str]:
 
 # ── benchmark tree hash (freeze rule, §15.6) ────────────────────────────────
 
+# Directory names that hold volatile/generated content. A file is excluded from
+# the freeze hash if ANY component of its benchmarks-relative path is one of
+# these. Mirrors A5's sandbox EXCLUDE_DIRS (minus .git, which never appears
+# under benchmarks/) plus `results/`, the evaluator's own output dir — so that
+# running the corpus, validating it, or writing results never changes the hash
+# of the committed SOURCE. Ground-truth and case source files are NOT here, so
+# a real corpus edit remains visible (§15.6).
+_HASH_EXCLUDE_DIRS: frozenset[str] = frozenset(
+    (
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".tox",
+        ".venv",
+        "venv",
+        "node_modules",
+        ".git",
+        "results",  # benchmarks/results/<timestamp>/ — the evaluator's output
+    )
+)
+
+# Compiled-Python and other volatile file suffixes, excluded regardless of dir.
+_HASH_EXCLUDE_SUFFIXES: frozenset[str] = frozenset(
+    (".pyc", ".pyo", ".pyd")
+)
+
+
+def _is_volatile_path(rel_posix: str) -> bool:
+    """True if a benchmarks-relative path is a volatile/generated artifact.
+
+    Checked purely from the relative path string so the decision is identical
+    on every machine and OS (paths are normalised to forward slashes upstream).
+    """
+    parts = rel_posix.split("/")
+    if any(part in _HASH_EXCLUDE_DIRS for part in parts):
+        return True
+    name = parts[-1]
+    return any(name.endswith(suffix) for suffix in _HASH_EXCLUDE_SUFFIXES)
+
+
 def benchmarks_tree_sha256(benchmarks_dir: str | Path) -> str:
-    """SHA-256 over the benchmarks/ tree: every file's relative path + bytes,
-    in sorted order. Comparing two runs with different hashes proves a case was
-    changed after results were seen (§15.6). Deterministic across machines:
-    paths use forward slashes and are sorted before hashing.
+    """SHA-256 over the benchmarks/ SOURCE tree: every non-volatile file's
+    relative path + bytes, in sorted order (§15.6 freeze rule).
+
+    Comparing two runs with different hashes proves a case was changed after
+    results were seen. Deterministic across machines AND across pytest/Python
+    runs: paths use forward slashes and are sorted before hashing, and volatile
+    or generated artifacts (``__pycache__``, ``*.pyc``, ``.pytest_cache``,
+    other caches, ``results/``) are excluded so validating or running the
+    corpus never perturbs the hash. Case source and ``ground_truth.json`` are
+    always included, so a genuine corpus edit stays visible.
     """
     root = Path(benchmarks_dir)
     hasher = hashlib.sha256()
-    files = sorted(
-        (p for p in root.rglob("*") if p.is_file()),
-        key=lambda p: p.relative_to(root).as_posix(),
+    entries = sorted(
+        (
+            (p.relative_to(root).as_posix(), p)
+            for p in root.rglob("*")
+            if p.is_file()
+        ),
+        key=lambda item: item[0],
     )
-    for p in files:
-        rel = p.relative_to(root).as_posix()
-        # exclude generated results so re-scoring doesn't change the hash
-        if rel.startswith("results/"):
+    for rel, p in entries:
+        if _is_volatile_path(rel):
             continue
         hasher.update(rel.encode("utf-8"))
         hasher.update(b"\0")
