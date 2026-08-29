@@ -108,3 +108,49 @@ def test_git_diff_shows_uncommitted_change(tmp_path: Path):
 def test_path_args_go_through_safe_resolve(repo: Path, fn):
     with pytest.raises(PathEscape):
         fn(repo)
+
+
+# ── review-mandated robustness tests ────────────────────────────────────────
+
+def test_read_file_returns_empty_on_missing_file(repo: Path):
+    """read_file must not crash on paths that don't exist inside the sandbox."""
+    out = repository.read_file(repo, "src/nonexistent.py")
+    assert out == ""
+
+
+def test_read_file_returns_empty_on_undecodable_file(repo: Path, tmp_path: Path):
+    """read_file must not crash on binary files that can't be decoded as UTF-8."""
+    binary = tmp_path / "binary.bin"
+    binary.write_bytes(b"\x80\x81\x82\xff\xfe")
+    # Write the binary path into the repo so safe_resolve resolves it
+    (repo / "src").mkdir(parents=True, exist_ok=True)
+    (repo / "src" / "binary.bin").write_bytes(b"\x80\x81\x82\xff\xfe")
+    out = repository.read_file(repo, "src/binary.bin")
+    assert out == ""
+
+
+def test_search_code_returns_empty_on_invalid_regex(repo: Path):
+    """search_code must not propagate re.error for malformed patterns."""
+    hits = repository.search_code(repo, r"\[invalid regex")
+    assert hits == []
+
+
+def test_search_code_limit_truncation(repo: Path):
+    """search_code respects the limit parameter — returns at most `limit` hits."""
+    # Write many files containing "test"
+    for i in range(50):
+        (repo / f"src/file{i}.py").write_text(f"x = {i}\n", encoding="utf-8")
+    # Also add one in tests/ which should be skipped
+    (repo / "tests" / "conftest.py").write_text("x = 999\n", encoding="utf-8")
+
+    hits = repository.search_code(repo, r"x = \d+", limit=5)
+    assert len(hits) <= 5
+    # First 5 should all match
+    for h in hits[:5]:
+        assert "x =" in h["text"]
+
+
+def test_list_files_limit_truncation(repo: Path):
+    """list_files respects the limit parameter."""
+    files = repository.list_files(repo, limit=10)
+    assert len(files) <= 10
