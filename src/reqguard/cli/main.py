@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import shutil
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -48,6 +49,40 @@ def _echo(msg: str = "") -> None:
 
 def _err(msg: str) -> None:
     typer.echo(msg, err=True)
+
+
+@contextmanager
+def _live_call_errors():
+    """Translate the SDK's credential-resolution failure into a clean error.
+
+    A zero-arg `anthropic.Anthropic()` resolves credentials through a chain
+    (env vars, an `ant auth login` profile, WIF) -- see
+    docs/03-implementation-manual.md section 1. When NONE of those resolve,
+    the SDK raises a bare `TypeError` deep inside request header validation,
+    not one of its own typed exceptions, and not a ReqGuardError -- so it was
+    falling straight through every `except ReqGuardError` in this file as a
+    full framework traceback. That's the single most common way a new user
+    hits this CLI (forgetting to set a key, or not realizing --replay needs
+    none at all).
+
+    Deliberately does NOT pre-check `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`
+    itself and bail early -- that would produce a FALSE "no credentials"
+    error for the legitimate case of an `ant auth login` profile with no env
+    vars set at all, which the SDK resolves fine on its own. Only this exact,
+    message-matched failure is translated; any other TypeError (a genuine
+    bug) is re-raised unchanged rather than silently relabeled.
+    """
+    try:
+        yield
+    except TypeError as exc:
+        if "Could not resolve authentication method" not in str(exc):
+            raise
+        _err(
+            "✗ no Anthropic credentials found. Set ANTHROPIC_API_KEY or "
+            "ANTHROPIC_AUTH_TOKEN, or run `ant auth login`.\n"
+            "  (--replay needs neither -- see docs/03-implementation-manual.md section 1.)"
+        )
+        raise typer.Exit(1)
 
 
 def _guard_python_project(repo: Path) -> None:
@@ -93,26 +128,28 @@ def analyze(
     traj = Trajectory(report_dir / "trajectory.jsonl")
 
     if dry_run:
-        _echo("Analyzing requirements...")
-        reqs = requirement_analyzer.run(repo / cfg.requirements_path, orchestrator.TrajectoryTrace(traj))
-        if requirement:
-            reqs = [r for r in reqs if r.id == requirement]
-        _echo(f"  ✓  {len(reqs)} requirement(s)")
-        with sandbox(repo, cfg) as sb:
-            for r in reqs:
-                inv = repository_investigator.run(sb, r)
-                if not inv.sites:
-                    _echo(f"  {r.id}: no enforcement site — would be INCONCLUSIVE")
-                    continue
-                spec = mutation_planner.run(sb, r, inv)
-                _echo(f"  {r.id}: planned {spec.mutation_type.value} on {spec.target_file}::{spec.target_symbol}")
+        with _live_call_errors():
+            _echo("Analyzing requirements...")
+            reqs = requirement_analyzer.run(repo / cfg.requirements_path, orchestrator.TrajectoryTrace(traj))
+            if requirement:
+                reqs = [r for r in reqs if r.id == requirement]
+            _echo(f"  ✓  {len(reqs)} requirement(s)")
+            with sandbox(repo, cfg) as sb:
+                for r in reqs:
+                    inv = repository_investigator.run(sb, r)
+                    if not inv.sites:
+                        _echo(f"  {r.id}: no enforcement site — would be INCONCLUSIVE")
+                        continue
+                    spec = mutation_planner.run(sb, r, inv)
+                    _echo(f"  {r.id}: planned {spec.mutation_type.value} on {spec.target_file}::{spec.target_symbol}")
         raise typer.Exit(0)
 
     try:
-        verdicts = orchestrator.analyze(
-            repo, cfg, traj, only=requirement, report_dir=report_dir,
-            replay_dir=replay, record_dir=record,
-        )
+        with _live_call_errors():
+            verdicts = orchestrator.analyze(
+                repo, cfg, traj, only=requirement, report_dir=report_dir,
+                replay_dir=replay, record_dir=record,
+            )
     except ReqGuardError as exc:
         _err(f"✗ {exc}")
         raise typer.Exit(1)
@@ -186,7 +223,8 @@ def benchmark(
     from reqguard.cli._runner import run_benchmark_arms
 
     only = [c.strip() for c in cases.split(",")] if cases else None
-    results_dir = run_benchmark_arms(benchmarks_dir, arm, only_cases=only, replay_dir=replay)
+    with _live_call_errors():
+        results_dir = run_benchmark_arms(benchmarks_dir, arm, only_cases=only, replay_dir=replay)
     _echo(f"✓ artifacts written to {results_dir}")
     _echo(f"  now run: reqguard evaluate --results {results_dir}")
 
@@ -235,18 +273,44 @@ def doctor(
     """The go/no-go gate: six kill criteria, must be green on case01 (section 20)."""
     from reqguard.cli._runner import run_doctor
 
-    ok = run_doctor(case, replay_dir=replay)
+    with _live_call_errors():
+        ok = run_doctor(case, replay_dir=replay)
     raise typer.Exit(0 if ok else 1)
 
 
 def main(argv: list[str] | None = None) -> int:  # pragma: no cover - console entry
+    # With standalone_mode=False, Typer/Click's own _main() converts an
+    # explicitly `raise typer.Exit(N)` inside a command into a plain RETURN
+    # VALUE from app(...) -- it does not propagate as an exception. The
+    # previous `except typer.Exit` clause here was therefore dead code: it
+    # never fired, `app(...)`'s return value was silently discarded, and
+    # every `raise typer.Exit(N)` in every command -- including `doctor`,
+    # this project's own go/no-go gate (Doc 3 section 20) -- reported exit
+    # code 0 to any calling shell or CI system regardless of N. Confirmed
+    # directly: app(args=["evaluate", "--results", "nonexistent"],
+    # standalone_mode=False) returns the int 2, it does not raise.
+    #
+    # A second, separate gap in the same standalone_mode=False contract:
+    # Click's _main() explicitly RE-RAISES a ClickException (bad flag,
+    # missing required option, bad type conversion -- e.g. NoSuchOption,
+    # UsageError, MissingParameter) rather than handling it itself, exactly
+    # because standalone_mode=False means the caller opted to handle
+    # presentation and the exit code. Confirmed directly:
+    # main(["analyze", "--this-flag-does-not-exist"]) raised NoSuchOption
+    # uncaught -- a raw traceback for the single most common way to misuse
+    # a CLI (a typo'd flag), rather than "Error: no such option" + exit 2.
+    from typer._click.exceptions import ClickException
+
     try:
-        app(args=argv, standalone_mode=False)
+        rv = app(args=argv, standalone_mode=False)
     except SystemExit as exc:
         return int(exc.code or 0)
-    except typer.Exit as exc:
+    except typer.Exit as exc:  # defensive: not currently reachable, cheap to keep
         return int(exc.exit_code)
-    return 0
+    except ClickException as exc:
+        exc.show()
+        return int(exc.exit_code)
+    return int(rv) if isinstance(rv, int) else 0
 
 
 if __name__ == "__main__":
