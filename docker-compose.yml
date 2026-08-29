@@ -1,0 +1,41 @@
+services:
+  # The default, judge-facing path (Doc 3 section 41 / COLLAB.md's "demo path
+  # and CI path"): zero API cost, no key needed, runs the full pipeline
+  # against the recorded replay fixtures in benchmarks/replay/.
+  #
+  #   docker compose up --build
+  #
+  benchmark:
+    build: .
+    volumes:
+      - ./benchmarks/results:/app/benchmarks/results
+      - ./reqguard-report:/app/reqguard-report
+    command: ["benchmark", "--arm", "both", "--replay", "benchmarks/replay"]
+
+  # Opt-in, spends real API budget -- requires ANTHROPIC_API_KEY on the host.
+  # Excluded from a bare `docker compose up` via the "live" profile so a
+  # judge running the default command never triggers a paid call by
+  # accident.
+  #
+  #   docker compose --profile live run benchmark-live
+  #
+  benchmark-live:
+    build: .
+    profiles: ["live"]
+    environment:
+      # Passed through from the host -- never baked into the image, never committed.
+      - ANTHROPIC_API_KEY
+      - ANTHROPIC_AUTH_TOKEN
+    volumes:
+      - ./benchmarks/results:/app/benchmarks/results
+      - ./reqguard-report:/app/reqguard-report
+    command: ["benchmark", "--arm", "both"]
+
+  evaluate:
+    build: .
+    depends_on:
+      benchmark:
+        condition: service_completed_successfully
+    volumes:
+      - ./benchmarks/results:/app/benchmarks/results
+    command: ["evaluate"]
