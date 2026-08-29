@@ -25,6 +25,7 @@ __all__ = [
     "newest_results_dir",
     "score_results",
     "run_doctor",
+    "render_trajectory",
 ]
 
 _RESULTS_ROOT = "results"
@@ -273,3 +274,158 @@ def typer_echo(msg: str) -> None:
     import typer
 
     typer.echo(msg)
+
+
+# ── trajectory rendering (Doc 3 section 12) ───────────────────────────────
+#
+# Reads reqguard.tracing.trajectory's JSONL output and renders the
+# "reasoning -> tool -> observation -> adaptation -> verification" arc Doc 1
+# section 27 describes -- the representative trajectory a submission needs.
+# Read-only consumer of that module's public read_events(); never imports or
+# modifies reqguard.tracing.trajectory's writing side (Track C's, crew-owned).
+
+
+def _find_trajectory_file(path: str | Path) -> Path:
+    """`path` may be a direct .jsonl file or a directory containing one
+    (a report dir, e.g. ./reqguard-report or a benchmark case's report)."""
+    p = Path(path)
+    if p.is_file():
+        return p
+    if p.is_dir():
+        candidate = p / "trajectory.jsonl"
+        if candidate.is_file():
+            return candidate
+        raise FileNotFoundError(f"no trajectory.jsonl in {p}")
+    raise FileNotFoundError(f"no such file or directory: {p}")
+
+
+def _event_line(ev: dict[str, Any], *, md: bool) -> str | None:
+    """One rendered line for one event, or None to skip it (api_call is
+    folded into the cost summary instead of shown per-line -- Doc 3 section
+    11.2's own discipline: cost is summed from records, not narrated one by
+    one)."""
+    t = ev.get("type")
+    stage = ev.get("stage")
+    tag = f"[{stage}] " if stage else ""
+
+    if t == "decision":
+        rationale = ev.get("rationale", "")
+        return f"- **{tag}Decision:** {rationale}" if md else f"  {tag}Decision: {rationale}"
+
+    if t == "tool_call":
+        tool = ev.get("tool", "?")
+        inp = ev.get("input", {})
+        return (f"- {tag}Called `{tool}`({inp})" if md
+                else f"  {tag}Called {tool}({inp})")
+
+    if t == "tool_result":
+        tool = ev.get("tool", "?")
+        summary = ev.get("result_summary", "")
+        return (f"- {tag}`{tool}` → {summary}" if md
+                else f"  {tag}{tool} -> {summary}")
+
+    if t == "verdict":
+        payload = ev.get("payload", {})
+        rendered = ", ".join(f"{k}={v}" for k, v in payload.items())
+        return (f"- **{tag}Verdict:** {rendered}" if md
+                else f"  {tag}Verdict: {rendered}")
+
+    if t == "error":
+        kind = ev.get("kind", "?")
+        message = ev.get("message", "")
+        return (f"- ⚠ {tag}Error ({kind}): {message}" if md
+                else f"  ! {tag}Error ({kind}): {message}")
+
+    return None  # api_call and any unrecognized future type: folded elsewhere
+
+
+def _cost_summary(events: list[dict[str, Any]]) -> dict[str, int]:
+    """Sum usage across every api_call record. Never estimated (section
+    11.2) -- if there are no api_call events (an all-replay run), every
+    total is honestly 0, not omitted."""
+    totals = {
+        "api_calls": 0, "input_tokens": 0, "output_tokens": 0,
+        "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0,
+    }
+    for ev in events:
+        if ev.get("type") != "api_call":
+            continue
+        totals["api_calls"] += 1
+        usage = ev.get("usage") or {}
+        for key in ("input_tokens", "output_tokens",
+                    "cache_read_input_tokens", "cache_creation_input_tokens"):
+            value = usage.get(key)
+            if isinstance(value, (int, float)):
+                totals[key] += int(value)
+    return totals
+
+
+def render_trajectory(path: str | Path, fmt: str = "text") -> str:
+    """Render one run's trajectory.jsonl as the representative narrative
+    Doc 1 section 27 describes. `fmt` is "text" (terminal-friendly) or "md"
+    (ready to paste into a submission)."""
+    from reqguard.tracing.trajectory import read_events
+
+    traj_path = _find_trajectory_file(path)
+    events = list(read_events(traj_path))
+    md = fmt == "md"
+
+    if not events:
+        return (
+            f"# Trajectory: {traj_path}\n\n(no events recorded — an empty run, "
+            "or every requirement was filtered out before any stage ran)\n"
+            if md else
+            f"Trajectory: {traj_path}\n"
+            "(no events recorded — an empty run, or every requirement was "
+            "filtered out before any stage ran)\n"
+        )
+
+    # Group by requirement_id, preserving first-appearance order. None (no
+    # requirement attributed) sorts last, under its own heading, rather than
+    # being silently dropped.
+    order: list[str | None] = []
+    groups: dict[str | None, list[dict[str, Any]]] = {}
+    for ev in events:
+        rid = ev.get("requirement_id")
+        if rid not in groups:
+            groups[rid] = []
+            order.append(rid)
+    for ev in events:
+        groups[ev.get("requirement_id")].append(ev)
+    if None in groups:
+        order.remove(None)
+        order.append(None)
+
+    lines: list[str] = []
+    title = f"# Trajectory: {traj_path.parent.name or traj_path}" if md else f"Trajectory: {traj_path}"
+    lines.append(title)
+    lines.append("")
+
+    for rid in order:
+        heading = rid if rid is not None else "(orchestration — no requirement attributed)"
+        lines.append(f"## {heading}" if md else f"-- {heading} --")
+        for ev in groups[rid]:
+            rendered = _event_line(ev, md=md)
+            if rendered is not None:
+                lines.append(rendered)
+        lines.append("")
+
+    cost = _cost_summary(events)
+    if md:
+        lines.append("## Cost")
+        lines.append(f"- API calls: {cost['api_calls']}")
+        lines.append(f"- Input tokens: {cost['input_tokens']:,}")
+        lines.append(f"- Output tokens: {cost['output_tokens']:,}")
+        lines.append(f"- Cache read tokens: {cost['cache_read_input_tokens']:,}")
+        lines.append(f"- Cache creation tokens: {cost['cache_creation_input_tokens']:,}")
+    else:
+        lines.append("-- Cost --")
+        lines.append(
+            f"  api_calls={cost['api_calls']}  input_tokens={cost['input_tokens']}  "
+            f"output_tokens={cost['output_tokens']}  "
+            f"cache_read={cost['cache_read_input_tokens']}  "
+            f"cache_creation={cost['cache_creation_input_tokens']}"
+        )
+    lines.append("")
+
+    return "\n".join(lines)

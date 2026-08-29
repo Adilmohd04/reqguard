@@ -278,6 +278,25 @@ def doctor(
     raise typer.Exit(0 if ok else 1)
 
 
+@app.command()
+def trajectory(
+    path: Path = typer.Argument(..., help="A trajectory.jsonl file, or a report dir containing one."),
+    format: str = typer.Option("text", help="text | md — md is ready to paste into the submission."),
+) -> None:
+    """Render a run's trajectory as the representative narrative (Doc 1 section 27):
+    requirement -> investigation -> mutation -> execution -> repair -> verification."""
+    from reqguard.cli._runner import render_trajectory
+
+    if format not in ("text", "md"):
+        _err("✗ --format must be text | md")
+        raise typer.Exit(2)
+    try:
+        _echo(render_trajectory(path, fmt=format))
+    except FileNotFoundError as exc:
+        _err(f"✗ {exc}")
+        raise typer.Exit(2)
+
+
 def main(argv: list[str] | None = None) -> int:  # pragma: no cover - console entry
     # With standalone_mode=False, Typer/Click's own _main() converts an
     # explicitly `raise typer.Exit(N)` inside a command into a plain RETURN

@@ -49,11 +49,24 @@ __all__ = ["analyze", "TrajectoryTrace"]
 
 class TrajectoryTrace:
     """Adapts Track C's :class:`~reqguard.tracing.trajectory.Trajectory` to the
-    ``trace.api_call(stage, response)`` shape that ``agent/client.py`` calls.
+    ``trace.api_call(stage, response)`` shape that ``agent/client.py`` calls,
+    plus the ``tool_result`` / ``decision`` / ``verdict`` events ``_run_one``
+    and ``_repair_loop`` emit at each stage boundary below.
 
     ``client.py`` never imports Track C; this is the seam. Set
     :attr:`requirement_id` before each requirement so api_call records are
     attributed and the section 11.3 cache-miss alarm is scoped correctly.
+
+    This is the ONLY thing that makes a run's trajectory a representative
+    narrative (Doc 1 section 27) rather than a bare list of API calls (live
+    mode) or nothing at all (replay mode, where no live call ever happens so
+    ``api_call`` never fires either). ``decision`` calls pass through each
+    stage model's own ``rationale`` field verbatim -- a genuine model-authored
+    sentence, in both live and replayed runs, never text the orchestrator
+    invents -- keeping intact the same "agent proposes, orchestrator never
+    asserts" boundary the whole design rests on. ``verdict`` calls carry only
+    computed facts (exit codes, booleans), the same discipline as the Verdict
+    objects this function returns.
     """
 
     def __init__(self, trajectory: Any | None = None) -> None:
@@ -77,7 +90,13 @@ class TrajectoryTrace:
                 stage=stage,
             )
 
-    # passthroughs the stages don't call today but the orchestrator may
+    def tool_result(self, tool: str, result_summary: str, *, stage: str | None = None) -> None:
+        if self._traj is not None:
+            with contextlib.suppress(Exception):
+                self._traj.tool_result(
+                    tool, result_summary, requirement_id=self.requirement_id, stage=stage
+                )
+
     def decision(self, rationale: str, *, stage: str | None = None) -> None:
         if self._traj is not None:
             with contextlib.suppress(Exception):
@@ -227,11 +246,17 @@ def _run_one(
 
         base = run_tests(orig_sb, cfg.test_command, cfg.test_timeout_s)
         if base.exit_code != 0:
+            trace.verdict({"stopped": "INCONCLUSIVE", "reason": "suite not green before mutation"}, stage="execute")
             return _inconclusive(
                 req,
                 "suite not green before mutation; downstream signals would be "
                 f"uninterpretable ({base.status.value}, exit {base.exit_code})",
             )
+        trace.tool_result(
+            "run_tests",
+            f"baseline: {base.passed} passed, {base.failed} failed, exit {base.exit_code}",
+            stage="execute",
+        )
 
         if replay_dir is not None:
             inv = replay_mod.investigation(replay_dir, case, req.id)
@@ -239,7 +264,10 @@ def _run_one(
             inv = repository_investigator.run(orig_sb, req, trace)
         if record_dir is not None:
             _record(record_dir, case, f"{req.id}.investigate", inv.model_dump(mode="json"))
+        if inv.rationale:
+            trace.decision(inv.rationale, stage="investigate")
         if not inv.sites:
+            trace.verdict({"stopped": "INCONCLUSIVE", "reason": "no enforcement site found"}, stage="investigate")
             return _inconclusive(req, "no enforcement site found for the requirement", investigation=inv)
 
         if replay_dir is not None:
@@ -248,28 +276,48 @@ def _run_one(
             spec = mutation_planner.run(orig_sb, req, inv, trace)
         if record_dir is not None:
             _record(record_dir, case, f"{req.id}.plan", spec.model_dump(mode="json"))
+        if spec.rationale:
+            trace.decision(spec.rationale, stage="plan")
         try:
             diff = mutation.apply_with_gates(spec, mut_sb, max_diff_lines=cfg.max_diff_lines)
         except MutationRejected as exc:
+            trace.verdict(
+                {"stopped": "INCONCLUSIVE", "reason": f"mutation rejected at gate {exc.gate!r}"}, stage="plan"
+            )
             return _inconclusive(
                 req, f"mutation rejected at gate {exc.gate!r}: {exc.detail}", investigation=inv, mutation=spec
             )
+        trace.tool_result(
+            "apply_mutation", f"{spec.mutation_type.value} on {spec.target_file}::{spec.target_symbol}",
+            stage="plan",
+        )
 
         if report_dir is not None:
             _write_diff(report_dir, req.id, diff)
 
         mutated = run_tests(mut_sb, cfg.test_command, cfg.test_timeout_s)
         if mutated.status is not RunStatus.OK:
+            trace.verdict(
+                {"stopped": "INCONCLUSIVE", "reason": f"mutated run inconclusive: {mutated.reason}"},
+                stage="execute",
+            )
             return _inconclusive(
                 req, f"mutated run inconclusive: {mutated.reason}", investigation=inv, mutation=spec
             )
+        trace.tool_result(
+            "run_tests",
+            f"mutated: {mutated.passed} passed, {mutated.failed} failed, exit {mutated.exit_code}",
+            stage="execute",
+        )
+        survived = mutated.exit_code == 0
+        trace.verdict({"survived": survived}, stage="execute")
 
-        if mutated.exit_code == 1:  # KILLED — the suite caught it
+        if not survived:  # KILLED — the suite caught it
             return _protected(req, inv, spec, base, mutated, diff)
 
         # SURVIVED — the finding. Try to close it.
         repair, ver = _repair_loop(
-            cfg, req, spec, mutated, orig_sb, mut_sb, report_dir, case, replay_dir, record_dir
+            cfg, req, spec, mutated, orig_sb, mut_sb, trace, report_dir, case, replay_dir, record_dir
         )
         return _gap(req, inv, spec, base, mutated, diff, repair, ver)
 
@@ -281,6 +329,7 @@ def _repair_loop(
     mutated: TestOutcome,
     orig_sb: Path,
     mut_sb: Path,
+    trace: TrajectoryTrace,
     report_dir: Path | None,
     case: str = "",
     replay_dir: Path | None = None,
@@ -300,6 +349,8 @@ def _repair_loop(
         if record_dir is not None:
             suffix = "" if attempt == 0 else f".{attempt}"
             _record(record_dir, case, f"{req.id}.repair{suffix}", proposal.model_dump(mode="json"))
+        if proposal.rationale:
+            trace.decision(proposal.rationale, stage="repair")
         last_proposal = proposal
 
         # Materialize the candidate somewhere neutral; verifier injects it into
@@ -312,6 +363,14 @@ def _repair_loop(
             with contextlib.suppress(OSError):
                 scratch.unlink()
         last_ver = ver
+        trace.verdict(
+            {
+                "verified": ver.verified,
+                "passes_on_original": ver.passes_on_original,
+                "kills_mutant": ver.kills_mutant,
+            },
+            stage="repair",
+        )
 
         if ver.verified:
             if report_dir is not None:
