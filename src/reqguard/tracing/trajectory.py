@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Literal
@@ -56,21 +57,57 @@ _EVENT_TYPES: frozenset[str] = frozenset(
     ("tool_call", "tool_result", "decision", "api_call", "verdict", "error")
 )
 
+# Event metadata owned by the logger. A caller-supplied payload field of the
+# same name must never overwrite it (spoofing the event type or destroying the
+# monotonic step/timestamp), so these are stripped from the payload and the
+# trusted values overlaid last in `emit`.
+_RESERVED_KEYS: frozenset[str] = frozenset(
+    ("step", "ts", "type", "requirement_id", "stage")
+)
+
 # Field names that would smuggle a reasoning transcript into the log. Blueprint
 # §29 forbids raw thinking / chain-of-thought; if a caller hands us a field that
-# looks like one, we drop it rather than trust the caller to have not. The check
-# is on substrings so `thinking`, `raw_thinking`, `chain_of_thought`, `cot`,
-# `reasoning`, `scratchpad`, `internal_monologue`, `thoughts` all get stripped.
-_BANNED_SUBSTRINGS: tuple[str, ...] = (
-    "thinking",
-    "thought",
-    "chain_of_thought",
-    "chain-of-thought",
-    "reasoning",
-    "scratchpad",
-    "monologue",
-    "cot",
+# looks like one, we drop it rather than trust the caller to have not.
+#
+# Matching is on TOKENS, not raw substrings: a key is split into lowercase
+# alphanumeric tokens on any non-alphanumeric boundary (`_`, `-`, camelCase,
+# digits) and a key is banned iff any of its tokens is a banned word. This
+# blocks the real transcript keys (`thinking`, `raw_thoughts`,
+# `chain_of_thought`, `cot`, `reasoning`, `scratchpad`, `monologue`, ...) while
+# leaving legitimate domain keys that merely CONTAIN those letters intact —
+# `apricot_count`, `boycott_flag`, `mascot`, `cotton`, `thoughtful`,
+# `afterthought` are all kept, because none of their tokens IS a banned word.
+_BANNED_TOKENS: frozenset[str] = frozenset(
+    (
+        "thinking",
+        "thoughts",
+        "thought",
+        "reasoning",
+        "reason",  # e.g. `reason_trace`; note `rationale` is NOT here (allowed)
+        "scratchpad",
+        "monologue",
+        "cot",  # chain-of-thought abbreviation
+        "cots",
+    )
 )
+
+# Multi-token phrases that must be blocked even though their individual tokens
+# (`chain`, `of`, `train`) are themselves innocuous. Compared against the key's
+# token sequence joined by '_'.
+_BANNED_PHRASES: frozenset[str] = frozenset(
+    (
+        "chain_of_thought",
+        "chain_of_thoughts",
+        "train_of_thought",
+    )
+)
+
+
+def _tokenize(key: str) -> list[str]:
+    """Split a key into lowercase tokens on non-alphanumeric AND case
+    boundaries, so `chainOfThought`, `chain_of_thought`, and `ChainOfThought`
+    all tokenize identically to ['chain', 'of', 'thought']."""
+    return re.findall(r"[a-z0-9]+", re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", key).lower())
 
 
 def _now_iso() -> str:
@@ -79,8 +116,10 @@ def _now_iso() -> str:
 
 
 def _is_banned_key(key: str) -> bool:
-    lowered = key.lower()
-    return any(bad in lowered for bad in _BANNED_SUBSTRINGS)
+    tokens = _tokenize(key)
+    if any(tok in _BANNED_TOKENS for tok in tokens):
+        return True
+    return "_".join(tokens) in _BANNED_PHRASES
 
 
 def _strip_reasoning(value: Any) -> Any:
@@ -114,9 +153,12 @@ class Trajectory:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._step = 0
-        # Count api_call events per requirement so the §11.3 cache alarm can
-        # fire on the *second* requirement of a run.
-        self._api_calls_seen = 0
+        # §11.3 cache alarm is scoped to REQUIREMENTS, not calls: one
+        # requirement can make several model calls, so counting calls would
+        # false-alarm during REQ-01. We track the ORDER in which distinct
+        # requirement_ids first make an api_call; the alarm may fire only on
+        # the first api_call of the *second distinct* requirement.
+        self._api_requirements: list[str | None] = []
 
     # ── low-level append ────────────────────────────────────────────────
 
@@ -141,18 +183,23 @@ class Trajectory:
             )
 
         self._step += 1
-        record: dict[str, Any] = {
-            "step": self._step,
-            "ts": _now_iso(),
-            "type": event_type,
-        }
+
+        # Start from the sanitized caller payload, THEN overlay trusted
+        # metadata last, so a caller-supplied `step`/`ts`/`type`/`stage`/
+        # `requirement_id` can never overwrite the real event metadata
+        # (destroying monotonic steps or spoofing the event type). Reserved
+        # keys that arrive in the payload are dropped with the overlay winning.
+        record: dict[str, Any] = dict(_strip_reasoning(fields))
+        for reserved in _RESERVED_KEYS:
+            record.pop(reserved, None)
+
+        record["step"] = self._step
+        record["ts"] = _now_iso()
+        record["type"] = event_type
         if requirement_id is not None:
             record["requirement_id"] = requirement_id
         if stage is not None:
             record["stage"] = stage
-
-        # Scrub caller-supplied payload before it can reach disk.
-        record.update(_strip_reasoning(fields))
 
         line = json.dumps(record, ensure_ascii=False, default=str)
         with self.path.open("a", encoding="utf-8") as fh:
@@ -227,8 +274,20 @@ class Trajectory:
         """Record a model call: `request_id` and the *full* usage object.
 
         Cost is summed from these records (§11.2), so the usage object is
-        preserved verbatim. Fires the §11.3 cache-miss alarm on the second
-        api_call of a run when `cache_read_input_tokens == 0`.
+        preserved verbatim.
+
+        §11.3 cache-miss alarm — REQUIREMENT-scoped, not call-scoped. A single
+        requirement can make several model calls; the alarm may fire only on
+        the FIRST api_call of the SECOND DISTINCT requirement of a run, when
+        that call reports `cache_read_input_tokens == 0`. Later calls for the
+        same second requirement, and calls for the first requirement (however
+        many), never fire it.
+
+        `requirement_id` handling: distinct requirement identity includes
+        `None`. A run that emits api_calls without requirement_ids treats the
+        first distinct absence (None) as requirement #1 and only a *different*
+        requirement_id as #2, so an un-attributed run never self-triggers the
+        alarm.
         """
         usage_dict = _coerce_usage(usage)
         record = self.emit(
@@ -241,10 +300,20 @@ class Trajectory:
             **extra,
         )
 
-        self._api_calls_seen += 1
-        # §11.3: the alarm is meaningful from the second call onward — the very
-        # first call legitimately has nothing cached to read.
-        if self._api_calls_seen >= 2 and _cache_read(usage_dict) == 0:
+        is_first_call_for_this_requirement = (
+            requirement_id not in self._api_requirements
+        )
+        if is_first_call_for_this_requirement:
+            self._api_requirements.append(requirement_id)
+
+        # The alarm is meaningful only on the second distinct requirement's
+        # first call: requirement #1 legitimately has nothing cached to read.
+        is_second_requirement = len(self._api_requirements) == 2
+        if (
+            is_first_call_for_this_requirement
+            and is_second_requirement
+            and _cache_read(usage_dict) == 0
+        ):
             self.error(
                 "cache_miss",
                 "cached prefix was invalidated — check for interpolation "

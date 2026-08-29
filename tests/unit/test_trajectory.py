@@ -187,47 +187,206 @@ def test_reasoning_dropped_from_usage_object(tmp_path: Path) -> None:
 
 # ── §11.3 cache-miss alarm ─────────────────────────────────────────────────
 
-def test_cache_miss_emitted_on_second_call_when_zero(tmp_path: Path) -> None:
+def test_cache_miss_emitted_on_second_requirement_when_zero(tmp_path: Path) -> None:
     trace = Trajectory(tmp_path / "t.jsonl")
-    # first call: a zero cache read is legitimate (nothing cached yet)
+    # first requirement: a zero cache read is legitimate (nothing cached yet)
     trace.api_call(
         "claude-opus-5", "req_1", {"cache_read_input_tokens": 0},
         requirement_id="REQ-01",
     )
-    # second call with zero cache read: the cached prefix was invalidated
+    # second DISTINCT requirement, first call, zero cache read -> alarm
     trace.api_call(
         "claude-opus-5", "req_2", {"cache_read_input_tokens": 0},
         requirement_id="REQ-02",
     )
 
-    events = trace.read()
-    errors = [e for e in events if e["type"] == "error"]
+    errors = [e for e in trace.read() if e["type"] == "error"]
     assert len(errors) == 1
     assert errors[0]["kind"] == "cache_miss"
     assert errors[0]["requirement_id"] == "REQ-02"
 
 
-def test_no_cache_miss_when_first_call_zero(tmp_path: Path) -> None:
+def test_multiple_calls_for_first_requirement_do_not_trigger(tmp_path: Path) -> None:
+    # Review defect #1: several calls for REQ-01 must NOT count as the 2nd
+    # requirement. Only a genuinely distinct requirement_id advances the count.
     trace = Trajectory(tmp_path / "t.jsonl")
-    trace.api_call("claude-opus-5", "req_1", {"cache_read_input_tokens": 0})
+    for i in range(4):
+        trace.api_call(
+            "claude-opus-5", f"req_{i}", {"cache_read_input_tokens": 0},
+            requirement_id="REQ-01",
+        )
     assert not [e for e in trace.read() if e["type"] == "error"]
 
 
-def test_no_cache_miss_when_second_call_has_cache_read(tmp_path: Path) -> None:
+def test_first_call_for_second_requirement_zero_triggers_after_many_first(
+    tmp_path: Path,
+) -> None:
+    # Many calls for REQ-01 (some with cache reads), then the FIRST call for
+    # REQ-02 with a zero cache read must fire exactly once.
     trace = Trajectory(tmp_path / "t.jsonl")
-    trace.api_call("claude-opus-5", "req_1", {"cache_read_input_tokens": 0})
-    trace.api_call("claude-opus-5", "req_2", {"cache_read_input_tokens": 5000})
+    trace.api_call("claude-opus-5", "a", {"cache_read_input_tokens": 0},
+                   requirement_id="REQ-01")
+    trace.api_call("claude-opus-5", "b", {"cache_read_input_tokens": 9000},
+                   requirement_id="REQ-01")
+    trace.api_call("claude-opus-5", "c", {"cache_read_input_tokens": 0},
+                   requirement_id="REQ-02")
+    errors = [e for e in trace.read() if e["type"] == "error"]
+    assert [e["requirement_id"] for e in errors] == ["REQ-02"]
+
+
+def test_no_cache_miss_when_first_requirement_zero(tmp_path: Path) -> None:
+    trace = Trajectory(tmp_path / "t.jsonl")
+    trace.api_call("claude-opus-5", "req_1", {"cache_read_input_tokens": 0},
+                   requirement_id="REQ-01")
+    assert not [e for e in trace.read() if e["type"] == "error"]
+
+
+def test_no_cache_miss_when_second_requirement_has_cache_read(tmp_path: Path) -> None:
+    trace = Trajectory(tmp_path / "t.jsonl")
+    trace.api_call("claude-opus-5", "req_1", {"cache_read_input_tokens": 0},
+                   requirement_id="REQ-01")
+    trace.api_call("claude-opus-5", "req_2", {"cache_read_input_tokens": 5000},
+                   requirement_id="REQ-02")
+    assert not [e for e in trace.read() if e["type"] == "error"]
+
+
+def test_second_requirement_alarm_only_on_first_call_not_later(
+    tmp_path: Path,
+) -> None:
+    # A later zero-read call for the SAME second requirement must not re-fire.
+    trace = Trajectory(tmp_path / "t.jsonl")
+    trace.api_call("claude-opus-5", "a", {"cache_read_input_tokens": 5000},
+                   requirement_id="REQ-01")
+    trace.api_call("claude-opus-5", "b", {"cache_read_input_tokens": 5000},
+                   requirement_id="REQ-02")  # 1st call REQ-02, has cache -> no alarm
+    trace.api_call("claude-opus-5", "c", {"cache_read_input_tokens": 0},
+                   requirement_id="REQ-02")  # 2nd call REQ-02 -> still no alarm
     assert not [e for e in trace.read() if e["type"] == "error"]
 
 
 def test_cache_miss_when_field_absent(tmp_path: Path) -> None:
     # a missing cache_read_input_tokens is treated as 0 (same regression)
     trace = Trajectory(tmp_path / "t.jsonl")
-    trace.api_call("claude-opus-5", "req_1", {"input_tokens": 1})
-    trace.api_call("claude-opus-5", "req_2", {"input_tokens": 1})
+    trace.api_call("claude-opus-5", "req_1", {"input_tokens": 1},
+                   requirement_id="REQ-01")
+    trace.api_call("claude-opus-5", "req_2", {"input_tokens": 1},
+                   requirement_id="REQ-02")
     errors = [e for e in trace.read() if e["type"] == "error"]
     assert len(errors) == 1
     assert errors[0]["kind"] == "cache_miss"
+
+
+def test_unattributed_calls_never_self_trigger(tmp_path: Path) -> None:
+    # Review defect #1: define behavior when requirement_id is absent. Repeated
+    # calls with no requirement_id are all the SAME distinct requirement (None),
+    # so a run that never attributes requirements never self-triggers.
+    trace = Trajectory(tmp_path / "t.jsonl")
+    for _ in range(5):
+        trace.api_call("claude-opus-5", "r", {"cache_read_input_tokens": 0})
+    assert not [e for e in trace.read() if e["type"] == "error"]
+
+
+def test_absent_then_present_requirement_counts_as_two(tmp_path: Path) -> None:
+    # None is requirement #1; a real id is a distinct requirement #2.
+    trace = Trajectory(tmp_path / "t.jsonl")
+    trace.api_call("claude-opus-5", "r1", {"cache_read_input_tokens": 0})
+    trace.api_call("claude-opus-5", "r2", {"cache_read_input_tokens": 0},
+                   requirement_id="REQ-02")
+    errors = [e for e in trace.read() if e["type"] == "error"]
+    assert [e["kind"] for e in errors] == ["cache_miss"]
+
+
+# ── review defect #2: legitimate substring keys must survive ───────────────
+
+def test_legitimate_substring_keys_survive(tmp_path: Path) -> None:
+    # These keys merely CONTAIN banned letters; none is a banned token.
+    payload = {
+        "apricot_count": 3,
+        "boycott_flag": True,
+        "mascot": "otter",
+        "cotton": 12,
+        "thoughtful": "yes",
+        "afterthought": "note",
+        "reasonable": True,     # contains "reason" but token is "reasonable"
+        "seasonal": 1,
+    }
+    trace = Trajectory(tmp_path / "t.jsonl")
+    trace.tool_result("x", "ok", **payload)
+    (event,) = trace.read()
+    for key, value in payload.items():
+        assert event[key] == value
+
+
+def test_real_transcript_keys_still_blocked(tmp_path: Path) -> None:
+    trace = Trajectory(tmp_path / "t.jsonl")
+    trace.tool_result(
+        "x", "ok",
+        cot="leak", chain_of_thought="leak", chainOfThought="leak",
+        raw_thoughts="leak", thinking="leak", reasoning="leak",
+        scratchpad="leak", monologue="leak", internal_monologue="leak",
+        train_of_thought="leak",
+    )
+    raw = (tmp_path / "t.jsonl").read_text(encoding="utf-8")
+    assert "leak" not in raw
+    (event,) = trace.read()
+    for banned in (
+        "cot", "chain_of_thought", "chainOfThought", "raw_thoughts",
+        "thinking", "reasoning", "scratchpad", "monologue",
+        "internal_monologue", "train_of_thought",
+    ):
+        assert banned not in event
+
+
+def test_legitimate_keys_survive_recursively(tmp_path: Path) -> None:
+    trace = Trajectory(tmp_path / "t.jsonl")
+    trace.tool_result(
+        "x", "ok",
+        detail={"mascot": "otter", "thoughtful": True, "thinking": "leak",
+                "nested": {"apricot_count": 2, "cot": "leak"}},
+    )
+    (event,) = trace.read()
+    assert event["detail"]["mascot"] == "otter"
+    assert event["detail"]["thoughtful"] is True
+    assert "thinking" not in event["detail"]
+    assert event["detail"]["nested"]["apricot_count"] == 2
+    assert "cot" not in event["detail"]
+
+
+# ── review defect #3: payload cannot overwrite reserved metadata ───────────
+
+def test_payload_cannot_overwrite_type(tmp_path: Path) -> None:
+    trace = Trajectory(tmp_path / "t.jsonl")
+    trace.emit("tool_call", type="verdict", tool="read_file")
+    (event,) = trace.read()
+    assert event["type"] == "tool_call"
+
+
+def test_payload_cannot_overwrite_step_or_ts(tmp_path: Path) -> None:
+    trace = Trajectory(tmp_path / "t.jsonl")
+    trace.decision("first")
+    trace.emit("decision", step=999, ts="1999-01-01T00:00:00Z", rationale="x")
+    events = trace.read()
+    # monotonic step preserved, not the injected 999
+    assert [e["step"] for e in events] == [1, 2]
+    assert events[1]["ts"] != "1999-01-01T00:00:00Z"
+    assert events[1]["ts"].endswith("Z")
+
+
+def test_payload_reserved_keys_are_dropped_not_errored(tmp_path: Path) -> None:
+    # step/ts/type can only arrive through the free-form payload (they are not
+    # named params of emit). They must be dropped and the trusted values win —
+    # never raise, never overwrite.
+    trace = Trajectory(tmp_path / "t.jsonl")
+    trace.tool_result(
+        "read_file", "ok",
+        **{"step": 999, "ts": "1999-01-01T00:00:00Z", "type": "verdict",
+           "extra": "kept"},
+    )
+    (event,) = trace.read()
+    assert event["type"] == "tool_result"
+    assert event["step"] == 1
+    assert event["ts"] != "1999-01-01T00:00:00Z"
+    assert event["extra"] == "kept"
 
 
 # ── the logger creates its parent directory ────────────────────────────────
