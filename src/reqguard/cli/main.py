@@ -23,7 +23,8 @@ from typing import Optional
 import typer
 
 from reqguard.config import load_config
-from reqguard.errors import ConfigError, ReqGuardError
+from reqguard.errors import ConfigError, PathEscape, ReqGuardError
+from reqguard.verification.safety import safe_resolve
 
 # The terminal report format (Doc 1 section 16) is specified down to its
 # checkmarks -- ✓ / ✗ are not decoration, they're the interface. A Windows
@@ -144,7 +145,18 @@ def apply(
         raise typer.Exit(1)
 
     repair = match["repair"]
-    target = repo.resolve() / repair["test_path"]
+    # repair["test_path"] came out of findings.json, which traces back to a
+    # RepairProposal.test_path the model wrote (Doc 3 section 5.5) -- an
+    # ordinary string field, not something structurally guaranteed to stay
+    # inside the repo. This is the ONE command that writes to the user's
+    # actual repository (section 13.3), so it gets the same containment
+    # check the sandbox/mutation path already has, via the same helper
+    # (verification.safety.safe_resolve) rather than a second copy of it.
+    try:
+        target = safe_resolve(repo, repair["test_path"])
+    except PathEscape as exc:
+        _err(f"✗ refusing to write outside {repo.resolve()}: {exc}")
+        raise typer.Exit(1)
     if target.exists():
         _err(f"✗ {target} already exists — refusing to overwrite")
         raise typer.Exit(1)
