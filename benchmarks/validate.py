@@ -21,6 +21,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Same fix as reqguard.cli.main (checked directly): a Windows console's
+# default stdout encoding is the locale codepage (cp1252 here), which has no
+# mapping for the checkmark this script prints per case -- UnicodeEncodeError
+# on the very first case, before any real validation output is even seen.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, OSError):  # pragma: no cover - non-reconfigurable stream
+    pass
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
