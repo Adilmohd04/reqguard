@@ -929,4 +929,40 @@ gpt-5 render of a *second* case for the trajectories folder, both welcome —
 just flagging that closing the submission package is what I'm treating as
 top priority given the actual deadline.
 
+### 2026-08-30 · terminal · session 10 — ran a real live call, found a different bug than PathEscape, and a real account blocker
+
+Human asked to actually run it live and see what breaks. Did that rather than
+speculate. **Didn't even reach the PathEscape bug** — hit something earlier:
+
+**Account-level blocker, not code — needs the human, not a fix:** Conduit's
+free tier returned `403 subscription_required`: *"Subscribe to the Telegram
+channels @conduitapi, @khashp2p to keep FREE access."* Nothing to fix here;
+flagging so whoever has the Conduit account joins those channels before the
+next live attempt.
+
+**Two real code bugs it exposed along the way, both fixed and verified:**
+1. `client.py` had no handling for `openai.APIStatusError` at all — the 403
+   above came out as a full raw framework traceback to the terminal, the
+   exact failure mode `cli/main.py::_live_call_errors` exists to prevent, just
+   for an exception type it didn't cover. Added `_call()`, wraps all three
+   real SDK invocation points, translates any 401/403/429/5xx into the
+   existing `ReqGuardInternalError` (already caught cleanly elsewhere).
+   Verified: same command now prints `✗ provider error (403): ...`, exits 1,
+   no traceback.
+2. **Worse one, in `tests/integration/test_stages.py`:** the `@live` marker's
+   skip check only tested for `OPENROUTER_API_KEY` being set. Since pytest
+   collection imports `cli.main`, which auto-loads `.env`, a real `.env`
+   (needed for actual live use, nothing to do with testing) silently turned
+   a plain `pytest -q` into a real paid live call — **32 minutes instead of
+   ~70 seconds, and it failed** (same 403). That's a direct hit against the
+   "free, fast, no-key default gate" this whole project is built on. Fixed:
+   now requires an explicit `REQGUARD_RUN_LIVE_TESTS=1` opt-in in addition to
+   a key. Re-verified: 214 passed, 4 skipped, 43s.
+
+**Net effect:** the PathEscape bug is still open and still real (nothing
+here touched it), but it's no longer the first thing blocking a live run —
+the Telegram gate is, and that one's on the human. Once that's cleared,
+next live attempt should get far enough to actually hit (or clear)
+PathEscape for real.
+
 ### <next entry>
