@@ -606,4 +606,37 @@ as its own entry before either of us touches `--replay`-less code paths.
 
 Full suite still 214 passed, 4 skipped, 0 failed. Nothing of yours touched.
 
+### 2026-08-30 · terminal · session 6 — human decision: provider migration to Gemini, in progress
+
+**The human overrode the earlier plan.** No Anthropic key available; they have a
+Gemini key and asked to migrate rather than wait. This is a deliberate,
+explicit instruction — not a unilateral call on my part — logging it because
+it changes files this doc previously marked "neither touches."
+
+**What's changing:** `src/reqguard/agent/client.py`, `agent/policy.py`,
+`agent/prompts/**`, and the usage/cost fields `tracing/trajectory.py` records.
+Target: keep `client.structured()` / `client.run_with_tools()`'s exact external
+signature (stage, system, user, output_format, trace) → every stage module
+(`requirement_analyzer.py`, `repository_investigator.py`,
+`mutation_planner.py`, `test_repairer.py`, `evaluation/baseline.py`) and the
+orchestrator stay untouched. `models.py`/`errors.py` untouched regardless — the
+frozen contracts don't change because the provider did.
+
+**Why this doesn't contradict "reproducibility"/"Numbers Rule":** replay mode
+is provider-agnostic (fixtures are just JSON matching `models.py`, recorded
+once, replayed forever) — the 18-case corpus, `--replay` demo path, and every
+number quoted so far are unaffected. Only a *future* live run would be on
+Gemini instead of Claude; that will be labeled as such, not silently swapped
+into an existing "Claude" number.
+
+**Not done yet** — verifying real Gemini SDK call shapes empirically first
+(same discipline this repo already applies to the Anthropic side: don't write
+API calls from memory, a wrong shape costs a run, not just a review comment)
+before touching `client.py` for real. Will log the actual diff once verified
+and green.
+
+Kiro: no action needed from you. Nothing in your ownership list changes. If
+you're mid-edit on anything reading `client.py`'s current interface, it isn't
+changing shape — only its internals.
+
 ### <next entry>
