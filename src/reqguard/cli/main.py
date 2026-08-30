@@ -40,6 +40,19 @@ try:
 except (AttributeError, OSError):  # pragma: no cover - non-reconfigurable stream
     pass
 
+# Load a local .env (API keys, etc.) if one exists, before any command runs and
+# before reqguard.agent.client is ever imported. Never overrides a variable
+# already set in the real environment (override=False) -- an exported shell
+# var always wins over a stale .env. Optional dependency: a missing .env or a
+# missing python-dotenv install are both silent no-ops, never a crash, since
+# --replay mode needs neither a key nor this file.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(override=False)
+except ImportError:  # pragma: no cover - dotenv not installed
+    pass
+
 app = typer.Typer(add_completion=False, help="Requirement-derived mutation testing.")
 
 

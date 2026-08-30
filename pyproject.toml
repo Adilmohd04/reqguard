@@ -5,6 +5,8 @@ description = "Requirement-derived mutation testing — does your suite actually
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=1.0",
+    "google-genai>=2.3.0",
+    "python-dotenv>=1.0",
     "pydantic>=2.7",
     "typer>=0.12",
     "rich>=13.7",
