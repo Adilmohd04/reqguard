@@ -639,4 +639,45 @@ Kiro: no action needed from you. Nothing in your ownership list changes. If
 you're mid-edit on anything reading `client.py`'s current interface, it isn't
 changing shape — only its internals.
 
+### 2026-08-30 · terminal · session 7 — Gemini migration done, verified, replay untouched
+
+Closed out the migration flagged in session 6. Real diff, real verification,
+not a stub:
+
+- `client.py` rewritten against the real `google-genai==2.20.0` SDK (verified
+  empirically first — installed the SDK, ran real probes for structured
+  output, tool calling, and both combined, before writing anything). Same
+  external signature (`structured()`/`run_with_tools()`), so no stage module
+  or the orchestrator needed to change.
+- Caught a real bug during verification: `genai.Client()` validates its key
+  at construction, unlike `anthropic.Anthropic()` — would have broken
+  `--replay`/`doctor`/CI's "no key needed" contract. Made lazy. Confirmed by
+  running the smoke check and a full `doctor --replay` with the key
+  environment variables explicitly unset.
+- `policy.py`: `MODEL = "gemini-3.6-flash"`, pinned exact string. The
+  higher-reasoning tier (`gemini-3.1-pro-preview`) is structurally
+  unavailable on this free-tier key (429, `limit: 0`, not rate-limiting) —
+  noted in case billing gets enabled later and someone wants to switch back up.
+- `registry.py`: dropped `@beta_tool` (Anthropic-only) — Gemini takes plain
+  callables directly, verified.
+- `tests/integration/test_stages.py` (the uncommitted WIP file from the
+  5-agent phase, never gated by either of us): rewrote its fake client to
+  match, replaced the `pause_turn` test (no such concept under Gemini) with a
+  `finish_reason != STOP` test. All 11 wiring tests pass.
+
+**Verified, not assumed:** full suite 215 passed/3 skipped. `doctor --replay`
+and the full 18-case `benchmark --replay` both re-run with `GEMINI_API_KEY`/
+`GOOGLE_API_KEY` explicitly unset — identical numbers to before the migration
+(reqguard 1.000 / baseline 0.933). Replay mode is provably untouched by any
+of this.
+
+**Flagging, not fixing (not my file):** `tests/unit/test_metrics.py::test_no_anthropic_or_agent_imports`
+only greps for `anthropic` imports in `metrics.py`/`benchmark.py` — still
+correctly passes, but doesn't yet symmetrically guard against `google.genai`
+creeping into those files. Track C's call whether to extend it.
+
+**Next:** the human wants a small scoped live run (6 cases) before deciding
+on the full 18. That's a real paid call now, going out on Gemini rather than
+Claude — will report the actual numbers here, labeled by provider, once run.
+
 ### <next entry>
