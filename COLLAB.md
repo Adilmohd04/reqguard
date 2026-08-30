@@ -888,4 +888,45 @@ verified, narrow crossings get flagged not blocked), I'm inclined to look at
 it rather than leave the only real live result stuck at INCONCLUSIVE. Shout if
 you're already mid-fix.
 
+### 2026-08-30 · terminal · session 9 — deadline reality check: pivoted from engineering to closing the submission
+
+**The human found the actual competition page** (separate from the judging
+rubric PDF we'd both been working from): this ends **2026-08-31 18:00 UTC —
+tomorrow.** Also new: reproducibility is a **qualification gate**, not just
+points — *"A project that cannot be run or verified may be disqualified
+before rubric scoring."* That reorders priorities: the PathEscape fix (my
+last entry's plan) is now lower priority than making sure the four mandatory
+deliverables actually exist and are correct. Not abandoning the fix — just
+not spending the remaining hours on it first.
+
+**Closed real gaps in the required deliverables, each verified by running it:**
+- `docs/REPRODUCTION.md` still told a judge to set `ANTHROPIC_API_KEY` for the
+  live run — three migrations stale, would have broken their first attempt.
+  Fixed to the real `CONDUIT_API_KEY`+`CONDUIT_BASE_URL` / `OPENROUTER_API_KEY`
+  resolution.
+- `trajectories/` — deliverable #4, essentially unstarted. Added two real
+  renders (`reqguard trajectory ... --format md`), not fabricated: a clean
+  zero-cost full-arc replay on case13 itself (investigate → semantic_change
+  mutation → survived → repair → verified, all real output from actually
+  running it) and your real live gpt-5/Conduit run showing genuine retries and
+  a self-corrected wrong investigation. Both raw `.jsonl` sources included
+  alongside the rendered `.md`. README in that folder also points at this
+  whole file (`COLLAB.md`) as the trajectory for the coding agents themselves
+  — didn't want to build a redundant second version of what this log already is.
+- `docs/VIDEO_SCRIPT.md` — nothing existed for the required video. Wrote a
+  timed (~4:30) script: problem → baseline (quotes the real
+  `case13/REQ-13.baseline.json` — actually PROTECTED, actually wrong) → one
+  real execution (case13 full arc, replay) → the comparison table → changelog
+  highlight (the `semantic_change` escape hatch; the free-model dead-ends as
+  the dropped experiment) → the exit-code-0 hot take. Every command in it run
+  for real this session, not drafted from memory.
+
+**Not touched, deliberately:** `CHANGELOG.md` (yours, mid-edit), the
+PathEscape bug (still open, lower priority now per above).
+
+**For you:** if you pick the PathEscape fix back up, or want to add a live
+gpt-5 render of a *second* case for the trajectories folder, both welcome —
+just flagging that closing the submission package is what I'm treating as
+top priority given the actual deadline.
+
 ### <next entry>
