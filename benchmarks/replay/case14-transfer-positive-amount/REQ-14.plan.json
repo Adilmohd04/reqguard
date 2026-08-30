@@ -1,0 +1,13 @@
+{
+  "id": "MUT-14",
+  "requirement_id": "REQ-14",
+  "mutation_type": "boundary_shift",
+  "target_file": "src/banking/transfer.py",
+  "target_symbol": "transfer_funds",
+  "original_snippet": "    if amount <= 0:",
+  "mutated_snippet": "    if amount < 0:",
+  "description": "Shift the amount boundary so a zero-amount transfer is allowed",
+  "expected_violation": "A zero transfer amount is accepted instead of rejected",
+  "violation_scenario": "transfer_funds(BankAccount(id='b1', balance=100.0), BankAccount(id='b2', balance=20.0), 0.0) completes without raising.",
+  "rationale": "Moving the boundary from <= 0 to < 0 admits a zero amount, the smallest shift that violates the strictly-positive rule while positive-amount tests still pass."
+}

@@ -1,0 +1,6 @@
+{
+  "requirement_id": "REQ-18",
+  "status": "INSUFFICIENTLY_PROTECTED",
+  "reasoning": "The suite has two tests on compute_sales_tax using inputs that never land on a half-cent tie: 100.00 at 8% is exactly 8.00 and 50.00 at 0% is 0.00. Because no test lands on a tie fraction, switching the rounding mode from half-to-even to half-up would not fail any existing test.",
+  "rationale": "No test exercises a half-cent tie where the rounding mode matters."
+}

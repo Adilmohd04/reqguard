@@ -1,0 +1,6 @@
+{
+  "requirement_id": "REQ-05",
+  "status": "PROTECTED",
+  "reasoning": "The suite exercises both sides of the write-scope guard: a token with 'write' succeeds, a read-only token raises InsufficientScopeError, and an empty-scope token raises. Any weakening of the guard fails at least one existing rejection test, so the requirement is protected.",
+  "rationale": "The rejection path is directly asserted by two existing tests, so the scope guard is protected."
+}

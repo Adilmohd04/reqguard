@@ -1,0 +1,19 @@
+{
+  "requirement_id": "REQ-07",
+  "sites": [
+    {
+      "file": "src/invoicing/service.py",
+      "symbol": "pay_invoice",
+      "start_line": 11,
+      "end_line": 12,
+      "enforcement_snippet": "if invoice.status in (\"paid\", \"void\"):\n    raise InvoiceClosedError(f\"Invoice {invoice.id} is {invoice.status}\")",
+      "confidence": "high"
+    }
+  ],
+  "covering_tests": [
+    "tests/test_invoicing.py::test_partial_payment_keeps_open",
+    "tests/test_invoicing.py::test_full_payment_marks_paid"
+  ],
+  "domain_notes": "pay_invoice rejects payment when the invoice is already 'paid' or 'void', guarded by a single membership check before it decrements balance. Both existing tests begin with an 'open' invoice; neither pays a finalized invoice, so the rejection path is never exercised.",
+  "rationale": "Selected pay_invoice because its status membership check is the sole enforcement and no test pays a finalized invoice."
+}

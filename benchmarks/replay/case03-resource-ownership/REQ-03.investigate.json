@@ -1,0 +1,19 @@
+{
+  "requirement_id": "REQ-03",
+  "sites": [
+    {
+      "file": "src/docs/service.py",
+      "symbol": "edit_document",
+      "start_line": 13,
+      "end_line": 14,
+      "enforcement_snippet": "if user_id != doc.owner_id and user_id not in doc.shared_with:\n    raise UnauthorizedError(f\"User {user_id} cannot edit doc {doc.id}\")",
+      "confidence": "high"
+    }
+  ],
+  "covering_tests": [
+    "tests/test_docs.py::test_owner_can_edit",
+    "tests/test_docs.py::test_shared_user_can_edit"
+  ],
+  "domain_notes": "edit_document permits an edit only for the owner or an explicitly shared user; a single combined guard enforces both. Both existing tests use authorized identities (owner, then a shared_with user); neither drives a third party who is neither owner nor shared, so the rejection path is untested.",
+  "rationale": "Selected edit_document because its combined owner/shared guard is the sole enforcement and no test drives an unauthorized third party."
+}

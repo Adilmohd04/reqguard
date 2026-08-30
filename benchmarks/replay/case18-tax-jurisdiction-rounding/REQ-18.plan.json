@@ -1,0 +1,13 @@
+{
+  "id": "MUT-18",
+  "requirement_id": "REQ-18",
+  "mutation_type": "semantic_change",
+  "target_file": "src/tax/calculator.py",
+  "target_symbol": "compute_sales_tax",
+  "original_snippet": "    rounded = tax.quantize(Decimal(\"0.01\"), rounding=ROUND_HALF_EVEN)",
+  "mutated_snippet": "    rounded = tax.quantize(Decimal(\"0.01\"), rounding=\"ROUND_HALF_UP\")",
+  "description": "Round half-up instead of half-to-even, introducing systematic upward bias on ties",
+  "expected_violation": "A half-cent tie rounds up (0.125 -> 0.13) instead of to the nearest even cent (0.125 -> 0.12)",
+  "violation_scenario": "compute_sales_tax('2.50', '5.0') computes tax 0.125 and returns '0.13' instead of the banker's-rounding '0.12'.",
+  "rationale": "Switching the quantize rounding mode to half-up is the smallest change that violates the mandated banker's rounding on tie fractions, which no catalogue mutation names."
+}

@@ -1,0 +1,14 @@
+[
+  {
+    "id": "REQ-02",
+    "statement": "Non-admin users cannot delete organization members. Attempting to delete a member without admin privileges must raise PermissionDeniedError.",
+    "behavior": {
+      "precondition": "actor.role != \"admin\"",
+      "prohibited_action": "remove_member(actor, org, member_id)",
+      "expected_result": "PermissionDeniedError raised"
+    },
+    "category": "authorization",
+    "severity": "high",
+    "source_location": "requirements.md:L3"
+  }
+]

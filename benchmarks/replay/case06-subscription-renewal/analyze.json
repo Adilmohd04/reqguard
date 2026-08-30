@@ -1,0 +1,14 @@
+[
+  {
+    "id": "REQ-06",
+    "statement": "Cancelled or expired subscriptions cannot be automatically renewed. Attempting renewal on a non-active subscription must raise InvalidStateTransitionError.",
+    "behavior": {
+      "precondition": "sub.status in (\"cancelled\", \"expired\")",
+      "prohibited_action": "renew_subscription(sub)",
+      "expected_result": "InvalidStateTransitionError raised"
+    },
+    "category": "state_transition",
+    "severity": "high",
+    "source_location": "requirements.md:L3"
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "id": "MUT-12",
+  "requirement_id": "REQ-12",
+  "mutation_type": "remove_validation",
+  "target_file": "src/users/validator.py",
+  "target_symbol": "validate_user_email",
+  "original_snippet": "    if not EMAIL_REGEX.match(email):\n        raise InvalidEmailFormatError(f\"Malformed email address: {email}\")\n",
+  "mutated_snippet": "",
+  "description": "Remove the email-format validation from validate_user_email",
+  "expected_violation": "A malformed email is accepted instead of being rejected",
+  "violation_scenario": "validate_user_email('not-an-email') returns 'not-an-email' instead of raising InvalidEmailFormatError.",
+  "rationale": "Deleting the two validation lines is the smallest plausible change that lets a malformed email through."
+}

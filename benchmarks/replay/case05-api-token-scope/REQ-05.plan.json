@@ -1,0 +1,13 @@
+{
+  "id": "MUT-05",
+  "requirement_id": "REQ-05",
+  "mutation_type": "remove_guard",
+  "target_file": "src/api_auth/tokens.py",
+  "target_symbol": "require_write_scope",
+  "original_snippet": "    if \"write\" not in token.scopes:\n        raise InsufficientScopeError(\"Missing required write scope\")",
+  "mutated_snippet": "    if False:\n        raise InsufficientScopeError(\"Missing required write scope\")",
+  "description": "Neutralize the write-scope guard so read-only tokens are accepted",
+  "expected_violation": "A read-only token passes require_write_scope instead of being rejected",
+  "violation_scenario": "require_write_scope(Token(token_id='t2', scopes={'read'})) returns without raising.",
+  "rationale": "Replacing the scope condition with False is the smallest change that lets a read-only token through, and the existing rejection tests should catch it."
+}

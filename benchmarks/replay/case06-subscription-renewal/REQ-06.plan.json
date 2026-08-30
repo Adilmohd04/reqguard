@@ -1,0 +1,13 @@
+{
+  "id": "MUT-06",
+  "requirement_id": "REQ-06",
+  "mutation_type": "allow_transition",
+  "target_file": "src/billing/subscription.py",
+  "target_symbol": "renew_subscription",
+  "original_snippet": "    if sub.status in (\"cancelled\", \"expired\"):",
+  "mutated_snippet": "    if sub.status in (\"expired\",):",
+  "description": "Narrow the renewal guard so a cancelled subscription is allowed to renew",
+  "expected_violation": "A cancelled subscription is renewed instead of rejected",
+  "violation_scenario": "renew_subscription(Subscription(id='s1', status='cancelled', term_count=1)) increments term_count to 2 instead of raising.",
+  "rationale": "Dropping 'cancelled' from the guarded statuses is the smallest change that permits renewing a cancelled subscription."
+}

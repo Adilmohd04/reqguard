@@ -1,0 +1,19 @@
+{
+  "requirement_id": "REQ-08",
+  "sites": [
+    {
+      "file": "src/jobs/scheduler.py",
+      "symbol": "start_job",
+      "start_line": 11,
+      "end_line": 12,
+      "enforcement_snippet": "if job.state != \"queued\":\n    raise IllegalJobStateError(f\"Job {job.id} cannot be started from state {job.state}\")",
+      "confidence": "high"
+    }
+  ],
+  "covering_tests": [
+    "tests/test_jobs.py::test_start_queued_job",
+    "tests/test_jobs.py::test_start_job_returns_job"
+  ],
+  "domain_notes": "start_job transitions a job to 'running' only from 'queued', guarded by a single state check. Both existing tests start jobs already in state 'queued'; neither starts a 'running' or 'completed' job, so the rejection path is never exercised.",
+  "rationale": "Selected start_job because its queued-state check is the sole enforcement and no test starts a non-queued job."
+}

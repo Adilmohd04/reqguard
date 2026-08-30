@@ -1,0 +1,14 @@
+[
+  {
+    "id": "REQ-09",
+    "statement": "Expired promotional discount codes cannot be applied to checkout totals. Applying an expired coupon must raise ExpiredCouponError.",
+    "behavior": {
+      "precondition": "current_time > coupon.expires_at",
+      "prohibited_action": "apply_coupon(total, coupon, current_time)",
+      "expected_result": "ExpiredCouponError raised"
+    },
+    "category": "business_rule",
+    "severity": "high",
+    "source_location": "requirements.md:L3"
+  }
+]

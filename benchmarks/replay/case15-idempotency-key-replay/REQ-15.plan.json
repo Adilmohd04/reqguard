@@ -1,0 +1,13 @@
+{
+  "id": "MUT-15",
+  "requirement_id": "REQ-15",
+  "mutation_type": "remove_guard",
+  "target_file": "src/gateway/idempotency.py",
+  "target_symbol": "IdempotencyStore.execute_or_replay",
+  "original_snippet": "        if key in self._cache:\n            return self._cache[key]\n",
+  "mutated_snippet": "",
+  "description": "Remove the cache-hit short-circuit so a replayed key re-executes the handler",
+  "expected_violation": "Replaying an existing idempotency key re-executes the handler instead of returning the cached response",
+  "violation_scenario": "Calling execute_or_replay('k1', handler) twice invokes handler twice instead of once, returning a freshly computed value on replay.",
+  "rationale": "Deleting the two cache-hit lines is the smallest plausible change that makes a replayed request re-execute the handler."
+}

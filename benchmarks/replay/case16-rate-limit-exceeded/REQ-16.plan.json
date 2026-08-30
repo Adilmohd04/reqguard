@@ -1,0 +1,13 @@
+{
+  "id": "MUT-16",
+  "requirement_id": "REQ-16",
+  "mutation_type": "boundary_shift",
+  "target_file": "src/ratelimit/limiter.py",
+  "target_symbol": "SlidingRateLimiter.record_request",
+  "original_snippet": "        if current > self.limit:",
+  "mutated_snippet": "        if current > self.limit + 1:",
+  "description": "Shift the rate-limit boundary so one extra request past the limit is allowed",
+  "expected_violation": "A client exceeding the limit is allowed instead of rejected",
+  "violation_scenario": "With limit=2, the third request (current=3) passes because 3 > 3 is false, instead of raising RateLimitExceededError.",
+  "rationale": "Moving the boundary from > limit to > limit + 1 lets one request past the limit through, the smallest shift that violates the rule while the under-limit tests still pass."
+}

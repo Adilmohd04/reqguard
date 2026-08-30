@@ -1,0 +1,19 @@
+{
+  "requirement_id": "REQ-15",
+  "sites": [
+    {
+      "file": "src/gateway/idempotency.py",
+      "symbol": "IdempotencyStore.execute_or_replay",
+      "start_line": 8,
+      "end_line": 9,
+      "enforcement_snippet": "if key in self._cache:\n    return self._cache[key]",
+      "confidence": "high"
+    }
+  ],
+  "covering_tests": [
+    "tests/test_idempotency.py::test_new_key_executes_handler",
+    "tests/test_idempotency.py::test_different_keys_execute_independently"
+  ],
+  "domain_notes": "execute_or_replay returns the cached result for a seen key and only calls the handler for a new key, guarded by a single cache-membership check. Both existing tests call with fresh keys and assert the returned value; neither replays the same key, so the replay-suppression path is never exercised.",
+  "rationale": "Selected execute_or_replay because its cache-membership check is the sole replay-suppression enforcement and no test replays an existing key."
+}

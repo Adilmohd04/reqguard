@@ -1,0 +1,8 @@
+{
+  "requirement_id": "REQ-17",
+  "mutation_id": "MUT-17",
+  "test_path": "tests/test_guard_missing.py",
+  "test_source": "import pytest\nfrom http_auth.guard import extract_bearer_token, AuthenticationRequiredError\n\n\ndef test_missing_header_is_rejected():\n    with pytest.raises(AuthenticationRequiredError):\n        extract_bearer_token({})\n",
+  "explanation": "Redundant assertion of the missing-header rejection path. The existing suite already covers missing, malformed, and blank tokens, so the mutation is killed and this repair is not needed; included for completeness.",
+  "rationale": "Asserts a missing Authorization header is rejected, the behavior the existing suite already protects."
+}

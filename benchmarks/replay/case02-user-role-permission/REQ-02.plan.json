@@ -1,0 +1,13 @@
+{
+  "id": "MUT-02",
+  "requirement_id": "REQ-02",
+  "mutation_type": "remove_guard",
+  "target_file": "src/auth/service.py",
+  "target_symbol": "remove_member",
+  "original_snippet": "    if actor.role != \"admin\":\n        raise PermissionDeniedError(f\"User {actor.id} is not an admin\")\n",
+  "mutated_snippet": "",
+  "description": "Remove the admin-role guard from remove_member",
+  "expected_violation": "A non-admin user removes an organization member instead of being rejected",
+  "violation_scenario": "remove_member(User(id='u2', role='member'), Org(id='o1', members=['u2','u3']), 'u3') removes 'u3' and raises nothing.",
+  "rationale": "Deleting the two guard lines is the smallest plausible change that lets a non-admin remove a member."
+}

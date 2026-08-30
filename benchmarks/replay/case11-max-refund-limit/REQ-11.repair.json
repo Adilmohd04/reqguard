@@ -1,0 +1,8 @@
+{
+  "requirement_id": "REQ-11",
+  "mutation_id": "MUT-11",
+  "test_path": "tests/test_refunds_overlimit.py",
+  "test_source": "import pytest\nfrom refunds.processor import Payment, process_refund, ExcessiveRefundError\n\n\ndef test_over_charge_refund_is_rejected():\n    p = Payment(id=\"p3\", charged_amount=50.0)\n    with pytest.raises(ExcessiveRefundError):\n        process_refund(p, 50.01)\n",
+  "explanation": "Redundant assertion of the over-charge rejection path. The existing suite already covers single and cumulative over-refunds, so the mutation is killed and this repair is not needed; included for completeness.",
+  "rationale": "Asserts an over-charge refund is rejected, the behavior the existing suite already protects."
+}

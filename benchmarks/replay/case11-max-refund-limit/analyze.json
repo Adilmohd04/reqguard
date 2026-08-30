@@ -1,0 +1,14 @@
+[
+  {
+    "id": "REQ-11",
+    "statement": "Total refunded amount on a transaction cannot exceed the original charged amount. Exceeding refunds must raise ExcessiveRefundError.",
+    "behavior": {
+      "precondition": "payment.refunded_amount + amount > payment.charged_amount",
+      "prohibited_action": "process_refund(payment, amount)",
+      "expected_result": "ExcessiveRefundError raised"
+    },
+    "category": "business_rule",
+    "severity": "high",
+    "source_location": "requirements.md:L3"
+  }
+]

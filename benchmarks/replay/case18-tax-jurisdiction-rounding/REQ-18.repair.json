@@ -1,0 +1,8 @@
+{
+  "requirement_id": "REQ-18",
+  "mutation_id": "MUT-18",
+  "test_path": "tests/test_calculator_bankers.py",
+  "test_source": "from tax.calculator import compute_sales_tax\n\n\ndef test_half_cent_tie_rounds_to_even():\n    # 2.50 * 5% = 0.125, a half-cent tie: banker's rounding -> 0.12 (even), not 0.13\n    assert compute_sales_tax(\"2.50\", \"5.0\") == \"0.12\"\n",
+  "explanation": "Chooses inputs whose tax lands exactly on a half-cent tie (0.125) and asserts half-to-even rounds down to the even cent 0.12. No existing test lands on a tie, which is why switching to half-up rounding survived.",
+  "rationale": "Asserting 0.125 rounds to 0.12 distinguishes banker's rounding from half-up and detects the semantic change."
+}

@@ -1,0 +1,8 @@
+{
+  "requirement_id": "REQ-15",
+  "mutation_id": "MUT-15",
+  "test_path": "tests/test_idempotency_replay.py",
+  "test_source": "from gateway.idempotency import IdempotencyStore\n\n\ndef test_replayed_key_does_not_re_execute():\n    store = IdempotencyStore()\n    calls = {\"n\": 0}\n\n    def handler():\n        calls[\"n\"] += 1\n        return f\"result-{calls['n']}\"\n\n    first = store.execute_or_replay(\"k1\", handler)\n    second = store.execute_or_replay(\"k1\", handler)\n    assert calls[\"n\"] == 1\n    assert first == \"result-1\"\n    assert second == \"result-1\"\n",
+  "explanation": "Replays the same key twice with a counting handler and asserts the handler ran once and the cached response was returned on replay. No existing test replays a key, which is why removing the cache-hit short-circuit survived.",
+  "rationale": "Asserting the handler is invoked exactly once across two calls with the same key detects the missing replay-suppression guard."
+}

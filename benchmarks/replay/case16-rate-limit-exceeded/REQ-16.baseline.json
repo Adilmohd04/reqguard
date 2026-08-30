@@ -1,0 +1,6 @@
+{
+  "requirement_id": "REQ-16",
+  "status": "INSUFFICIENTLY_PROTECTED",
+  "reasoning": "The suite has two tests on record_request, both staying well under the limit: one request (test_first_request_allowed) and six requests against a limit of 60 (test_requests_under_limit_allowed). Neither drives the counter past the limit, so shifting the over-limit boundary would not fail any existing test.",
+  "rationale": "No test exercises the over-limit rejection path."
+}

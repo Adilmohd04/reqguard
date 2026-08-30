@@ -1,0 +1,14 @@
+[
+  {
+    "id": "REQ-13",
+    "statement": "A partially fulfilled order must never be reported as completed. When items shipped are fewer than items ordered, status must be reported as 'partial'.",
+    "behavior": {
+      "precondition": "0 < shipped < ordered",
+      "prohibited_action": "fulfillment_status(ordered, shipped) == \"completed\"",
+      "expected_result": "status reported as 'partial'"
+    },
+    "category": "semantic",
+    "severity": "high",
+    "source_location": "requirements.md:L3"
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "id": "MUT-08",
+  "requirement_id": "REQ-08",
+  "mutation_type": "allow_transition",
+  "target_file": "src/jobs/scheduler.py",
+  "target_symbol": "start_job",
+  "original_snippet": "    if job.state != \"queued\":",
+  "mutated_snippet": "    if job.state == \"cancelled\":",
+  "description": "Replace the queued-only guard with an unreachable state so any job can be started",
+  "expected_violation": "A running or completed job is restarted instead of rejected",
+  "violation_scenario": "start_job(Job(id='j1', state='running')) sets state back to 'running' and raises nothing; a 'completed' job would likewise be restarted.",
+  "rationale": "Guarding on a state the job never holds ('cancelled') lets a running or completed job be restarted, the smallest change that permits the illegal transition."
+}

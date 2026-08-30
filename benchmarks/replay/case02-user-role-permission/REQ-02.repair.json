@@ -1,0 +1,8 @@
+{
+  "requirement_id": "REQ-02",
+  "mutation_id": "MUT-02",
+  "test_path": "tests/test_auth_nonadmin.py",
+  "test_source": "import pytest\nfrom auth.service import User, Org, remove_member, PermissionDeniedError\n\n\ndef test_non_admin_cannot_remove_member():\n    actor = User(id=\"u2\", role=\"member\")\n    org = Org(id=\"o1\", members=[\"u2\", \"u3\"])\n    with pytest.raises(PermissionDeniedError):\n        remove_member(actor, org, \"u3\")\n    assert org.members == [\"u2\", \"u3\"]\n",
+  "explanation": "Constructs the non-admin actor the requirement names and asserts remove_member rejects it and leaves membership unchanged. No existing test uses a non-admin actor, which is why removing the guard survived.",
+  "rationale": "pytest.raises(PermissionDeniedError) on a member-role actor is the assertion that detects the missing admin guard."
+}

@@ -1,0 +1,8 @@
+{
+  "requirement_id": "REQ-09",
+  "mutation_id": "MUT-09",
+  "test_path": "tests/test_discounts_expired.py",
+  "test_source": "import pytest\nfrom datetime import datetime\nfrom discounts.calculator import Coupon, apply_coupon, ExpiredCouponError\n\n\ndef test_expired_coupon_is_rejected():\n    coupon = Coupon(code=\"SAVE20\", discount_percent=20.0, expires_at=datetime(2020, 1, 1))\n    now = datetime(2026, 1, 1)\n    with pytest.raises(ExpiredCouponError):\n        apply_coupon(100.0, coupon, now)\n",
+  "explanation": "Supplies a coupon whose expiry is before current_time and asserts apply_coupon rejects it. No existing test supplies an expired coupon, which is why removing the expiry guard survived.",
+  "rationale": "pytest.raises(ExpiredCouponError) on a past-expiry coupon is the assertion that detects the missing guard."
+}

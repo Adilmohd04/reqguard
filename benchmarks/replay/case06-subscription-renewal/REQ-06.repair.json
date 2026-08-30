@@ -1,0 +1,8 @@
+{
+  "requirement_id": "REQ-06",
+  "mutation_id": "MUT-06",
+  "test_path": "tests/test_subscription_cancelled.py",
+  "test_source": "import pytest\nfrom billing.subscription import Subscription, renew_subscription, InvalidStateTransitionError\n\n\ndef test_cancelled_subscription_cannot_renew():\n    sub = Subscription(id=\"s1\", status=\"cancelled\", term_count=1)\n    with pytest.raises(InvalidStateTransitionError):\n        renew_subscription(sub)\n    assert sub.term_count == 1\n",
+  "explanation": "Constructs a cancelled subscription and asserts renew_subscription rejects it with term_count unchanged. No existing test renews a cancelled subscription, which is why narrowing the guard survived.",
+  "rationale": "pytest.raises(InvalidStateTransitionError) on a cancelled subscription is the assertion that detects the weakened guard."
+}

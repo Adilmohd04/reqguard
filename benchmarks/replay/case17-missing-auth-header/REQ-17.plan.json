@@ -1,0 +1,13 @@
+{
+  "id": "MUT-17",
+  "requirement_id": "REQ-17",
+  "mutation_type": "remove_guard",
+  "target_file": "src/http_auth/guard.py",
+  "target_symbol": "extract_bearer_token",
+  "original_snippet": "    if not auth or not auth.strip().startswith(\"Bearer \"):\n        raise AuthenticationRequiredError(\"Missing or malformed Authorization header\")",
+  "mutated_snippet": "    if auth is None and False:\n        raise AuthenticationRequiredError(\"Missing or malformed Authorization header\")",
+  "description": "Neutralize the missing/malformed-header guard so unauthenticated requests slip past",
+  "expected_violation": "A request with a missing or malformed Authorization header is not rejected at the header guard",
+  "violation_scenario": "extract_bearer_token({}) or extract_bearer_token({'Authorization': 'Basic dXNlcjpwYXNz'}) no longer raises at the header guard.",
+  "rationale": "Replacing the header condition with an always-false guard removes the enforcement, and the existing missing/malformed/blank tests should catch it."
+}

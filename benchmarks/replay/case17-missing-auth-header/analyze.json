@@ -1,0 +1,14 @@
+[
+  {
+    "id": "REQ-17",
+    "statement": "API requests missing the 'Authorization' header or supplying a blank token must raise AuthenticationRequiredError.",
+    "behavior": {
+      "precondition": "not auth or not auth.strip().startswith(\"Bearer \")",
+      "prohibited_action": "extract_bearer_token(headers)",
+      "expected_result": "AuthenticationRequiredError raised"
+    },
+    "category": "api_error",
+    "severity": "high",
+    "source_location": "requirements.md:L3"
+  }
+]

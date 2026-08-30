@@ -1,0 +1,6 @@
+{
+  "requirement_id": "REQ-15",
+  "status": "INSUFFICIENTLY_PROTECTED",
+  "reasoning": "The suite has two tests on execute_or_replay, both calling with fresh keys and asserting the returned value (test_new_key_executes_handler, test_different_keys_execute_independently). Neither replays the same key nor asserts the handler runs only once, so removing the cache-hit short-circuit would not fail any existing test.",
+  "rationale": "No test exercises the replay-suppression path."
+}

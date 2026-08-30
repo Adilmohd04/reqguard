@@ -1,0 +1,14 @@
+[
+  {
+    "id": "REQ-12",
+    "statement": "Email addresses submitted for registration must contain both a non-empty username and a valid domain separated by '@'. Malformed emails must raise InvalidEmailFormatError.",
+    "behavior": {
+      "precondition": "not EMAIL_REGEX.match(email)",
+      "prohibited_action": "validate_user_email(email)",
+      "expected_result": "InvalidEmailFormatError raised"
+    },
+    "category": "validation",
+    "severity": "high",
+    "source_location": "requirements.md:L3"
+  }
+]

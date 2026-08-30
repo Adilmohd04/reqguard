@@ -1,0 +1,19 @@
+{
+  "requirement_id": "REQ-02",
+  "sites": [
+    {
+      "file": "src/auth/service.py",
+      "symbol": "remove_member",
+      "start_line": 18,
+      "end_line": 19,
+      "enforcement_snippet": "if actor.role != \"admin\":\n    raise PermissionDeniedError(f\"User {actor.id} is not an admin\")",
+      "confidence": "high"
+    }
+  ],
+  "covering_tests": [
+    "tests/test_auth.py::test_admin_can_remove_member",
+    "tests/test_auth.py::test_admin_remove_nonexistent_member"
+  ],
+  "domain_notes": "remove_member is guarded by a single admin-role check before it mutates org.members. Both existing tests pass an actor with role 'admin'; neither constructs a non-admin actor, so the guard's rejection path is never exercised.",
+  "rationale": "Selected remove_member because its admin-role check is the sole enforcement of the requirement and no test drives a non-admin actor."
+}

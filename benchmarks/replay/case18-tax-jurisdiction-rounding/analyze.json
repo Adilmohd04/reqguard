@@ -1,0 +1,14 @@
+[
+  {
+    "id": "REQ-18",
+    "statement": "Sales tax calculation must apply half-to-even rounding (banker's rounding) to cent fractions to prevent systematic cumulative bias.",
+    "behavior": {
+      "precondition": "a computed tax lands exactly on a half-cent tie (e.g. 0.125)",
+      "prohibited_action": "compute_sales_tax(subtotal, rate_percent)",
+      "expected_result": "half-to-even rounding applied (0.125 -> 0.12)"
+    },
+    "category": "semantic",
+    "severity": "high",
+    "source_location": "requirements.md:L3"
+  }
+]

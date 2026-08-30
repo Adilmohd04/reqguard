@@ -1,0 +1,13 @@
+{
+  "id": "MUT-09",
+  "requirement_id": "REQ-09",
+  "mutation_type": "remove_guard",
+  "target_file": "src/discounts/calculator.py",
+  "target_symbol": "apply_coupon",
+  "original_snippet": "    if current_time > coupon.expires_at:\n        raise ExpiredCouponError(f\"Coupon {coupon.code} expired at {coupon.expires_at}\")\n",
+  "mutated_snippet": "",
+  "description": "Remove the expiry guard from apply_coupon",
+  "expected_violation": "An expired coupon is applied to the total instead of being rejected",
+  "violation_scenario": "apply_coupon(100.0, Coupon(code='SAVE20', discount_percent=20.0, expires_at=datetime(2020,1,1)), datetime(2026,1,1)) returns 80.0 instead of raising.",
+  "rationale": "Deleting the two guard lines is the smallest plausible change that lets an expired coupon be applied."
+}

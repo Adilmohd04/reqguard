@@ -1,0 +1,14 @@
+[
+  {
+    "id": "REQ-16",
+    "statement": "Clients making more than 60 requests in a time window must receive a RateLimitExceededError.",
+    "behavior": {
+      "precondition": "current > self.limit",
+      "prohibited_action": "SlidingRateLimiter.record_request(client_ip)",
+      "expected_result": "RateLimitExceededError raised"
+    },
+    "category": "api_error",
+    "severity": "high",
+    "source_location": "requirements.md:L3"
+  }
+]

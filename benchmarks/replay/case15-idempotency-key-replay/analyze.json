@@ -1,0 +1,14 @@
+[
+  {
+    "id": "REQ-15",
+    "statement": "Replaying an API request with an existing idempotency key must return the cached response without re-executing the operation handler.",
+    "behavior": {
+      "precondition": "key in self._cache",
+      "prohibited_action": "IdempotencyStore.execute_or_replay(key, handler)",
+      "expected_result": "cached response returned without re-executing handler"
+    },
+    "category": "api_error",
+    "severity": "high",
+    "source_location": "requirements.md:L3"
+  }
+]

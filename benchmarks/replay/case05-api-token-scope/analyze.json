@@ -1,0 +1,14 @@
+[
+  {
+    "id": "REQ-05",
+    "statement": "API requests attempting write operations must possess the 'write' token scope. Requests with read-only tokens must be rejected with InsufficientScopeError.",
+    "behavior": {
+      "precondition": "\"write\" not in token.scopes",
+      "prohibited_action": "require_write_scope(token)",
+      "expected_result": "InsufficientScopeError raised"
+    },
+    "category": "authorization",
+    "severity": "high",
+    "source_location": "requirements.md:L3"
+  }
+]

@@ -1,0 +1,19 @@
+{
+  "requirement_id": "REQ-18",
+  "sites": [
+    {
+      "file": "src/tax/calculator.py",
+      "symbol": "compute_sales_tax",
+      "start_line": 7,
+      "end_line": 7,
+      "enforcement_snippet": "rounded = tax.quantize(Decimal(\"0.01\"), rounding=ROUND_HALF_EVEN)",
+      "confidence": "high"
+    }
+  ],
+  "covering_tests": [
+    "tests/test_calculator.py::test_standard_tax_calculation",
+    "tests/test_calculator.py::test_zero_tax_rate"
+  ],
+  "domain_notes": "compute_sales_tax quantizes the computed tax to cents using ROUND_HALF_EVEN, which is the entire requirement. Both existing tests use inputs that never land on a half-cent tie (100.00 at 8% = 8.00 exactly; 50.00 at 0% = 0.00), so the rounding mode is never distinguished from any other mode.",
+  "rationale": "Selected compute_sales_tax because the ROUND_HALF_EVEN quantize is the sole enforcement and no test lands on a half-cent tie that would distinguish the rounding mode."
+}

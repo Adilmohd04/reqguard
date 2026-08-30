@@ -1,0 +1,6 @@
+{
+  "requirement_id": "REQ-12",
+  "status": "INSUFFICIENTLY_PROTECTED",
+  "reasoning": "The suite has two tests on validate_user_email, both supplying well-formed addresses (test_valid_simple_email, test_valid_subdomain_email). Neither supplies a malformed address, so removing the format validation would not fail any existing test.",
+  "rationale": "No test exercises the malformed-email rejection path."
+}

@@ -1,0 +1,21 @@
+{
+  "requirement_id": "REQ-17",
+  "sites": [
+    {
+      "file": "src/http_auth/guard.py",
+      "symbol": "extract_bearer_token",
+      "start_line": 5,
+      "end_line": 6,
+      "enforcement_snippet": "if not auth or not auth.strip().startswith(\"Bearer \"):\n    raise AuthenticationRequiredError(\"Missing or malformed Authorization header\")",
+      "confidence": "high"
+    }
+  ],
+  "covering_tests": [
+    "tests/test_guard.py::test_valid_bearer_token_extracted",
+    "tests/test_guard.py::test_missing_authorization_header_raises",
+    "tests/test_guard.py::test_malformed_auth_header_raises",
+    "tests/test_guard.py::test_empty_bearer_token_raises"
+  ],
+  "domain_notes": "extract_bearer_token rejects a missing header, a non-Bearer scheme, and a blank token via two guards. The suite exercises all sides: a valid token is extracted, a missing header raises, a Basic scheme raises, and a whitespace-only Bearer token raises. Every rejection branch is directly asserted.",
+  "rationale": "Selected extract_bearer_token because it is the sole header enforcement and the suite already asserts the missing, malformed, and blank-token rejection branches."
+}

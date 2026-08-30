@@ -1,0 +1,14 @@
+[
+  {
+    "id": "REQ-07",
+    "statement": "Invoices marked as 'paid' or 'void' cannot accept additional payments. Applying payment to a finalized invoice must raise InvoiceClosedError.",
+    "behavior": {
+      "precondition": "invoice.status in (\"paid\", \"void\")",
+      "prohibited_action": "pay_invoice(invoice, amount)",
+      "expected_result": "InvoiceClosedError raised"
+    },
+    "category": "state_transition",
+    "severity": "high",
+    "source_location": "requirements.md:L3"
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "id": "MUT-10",
+  "requirement_id": "REQ-10",
+  "mutation_type": "comparison_change",
+  "target_file": "src/inventory/stock.py",
+  "target_symbol": "reserve_stock",
+  "original_snippet": "    if requested_qty > item.available:",
+  "mutated_snippet": "    if requested_qty > item.available * 2:",
+  "description": "Weaken the overdraw comparison so requests up to double stock are allowed",
+  "expected_violation": "A request exceeding available stock is reserved instead of rejected",
+  "violation_scenario": "reserve_stock(StockItem(sku='SKU-01', available=10), 11) drives available to -1 instead of raising.",
+  "rationale": "Comparing against double the available quantity lets a modest overdraw through while the existing at-or-below-stock tests still pass."
+}

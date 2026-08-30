@@ -1,0 +1,19 @@
+{
+  "requirement_id": "REQ-09",
+  "sites": [
+    {
+      "file": "src/discounts/calculator.py",
+      "symbol": "apply_coupon",
+      "start_line": 13,
+      "end_line": 14,
+      "enforcement_snippet": "if current_time > coupon.expires_at:\n    raise ExpiredCouponError(f\"Coupon {coupon.code} expired at {coupon.expires_at}\")",
+      "confidence": "high"
+    }
+  ],
+  "covering_tests": [
+    "tests/test_discounts.py::test_valid_coupon_applies_discount",
+    "tests/test_discounts.py::test_zero_discount_coupon"
+  ],
+  "domain_notes": "apply_coupon rejects a coupon whose expiry is before current_time, guarded by a single datetime comparison. Both existing tests supply a current_time (2026) well before the coupon expiry (2030); neither supplies an expired coupon, so the rejection path is never exercised.",
+  "rationale": "Selected apply_coupon because its expiry comparison is the sole enforcement and no test supplies an expired coupon."
+}

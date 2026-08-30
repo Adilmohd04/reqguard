@@ -1,0 +1,6 @@
+{
+  "requirement_id": "REQ-10",
+  "status": "INSUFFICIENTLY_PROTECTED",
+  "reasoning": "The suite has two tests on reserve_stock, both requesting at or below availability: 4 of 10 (test_reserve_available_stock) and 5 of 5 (test_reserve_all_stock). Neither requests more than available, so weakening the overdraw comparison would not fail any existing test.",
+  "rationale": "No test exercises the overdraw rejection path."
+}

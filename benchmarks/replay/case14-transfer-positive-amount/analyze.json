@@ -1,0 +1,14 @@
+[
+  {
+    "id": "REQ-14",
+    "statement": "Account fund transfers must specify a strictly positive transfer amount. Zero or negative transfer amounts must raise InvalidTransferAmountError.",
+    "behavior": {
+      "precondition": "amount <= 0",
+      "prohibited_action": "transfer_funds(source, target, amount)",
+      "expected_result": "InvalidTransferAmountError raised"
+    },
+    "category": "validation",
+    "severity": "high",
+    "source_location": "requirements.md:L3"
+  }
+]

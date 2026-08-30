@@ -1,0 +1,6 @@
+{
+  "requirement_id": "REQ-04",
+  "status": "INSUFFICIENTLY_PROTECTED",
+  "reasoning": "The suite has two tests on get_record: one queries a record using its true owning tenant_id (test_get_existing_record_same_tenant), the other queries a missing id and expects KeyError (test_get_missing_record_raises_key_error). Neither issues a cross-tenant query against an existing record, so removing the isolation guard would not fail any existing test.",
+  "rationale": "No test exercises the cross-tenant rejection path."
+}

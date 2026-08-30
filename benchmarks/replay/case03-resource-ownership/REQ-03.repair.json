@@ -1,0 +1,8 @@
+{
+  "requirement_id": "REQ-03",
+  "mutation_id": "MUT-03",
+  "test_path": "tests/test_docs_unauthorized.py",
+  "test_source": "import pytest\nfrom docs.service import Document, edit_document, UnauthorizedError\n\n\ndef test_unauthorized_user_cannot_edit():\n    doc = Document(id=\"d1\", owner_id=\"user1\", content=\"old\")\n    with pytest.raises(UnauthorizedError):\n        edit_document(\"intruder\", doc, \"hacked\")\n    assert doc.content == \"old\"\n",
+  "explanation": "Constructs a third party who is neither owner nor shared and asserts edit_document rejects the edit and leaves content unchanged. No existing test drives an unauthorized identity, which is why removing the guard survived.",
+  "rationale": "pytest.raises(UnauthorizedError) for a non-owner, non-shared user is the assertion that detects the missing guard."
+}

@@ -1,0 +1,14 @@
+[
+  {
+    "id": "REQ-08",
+    "statement": "A background job that is already 'running' or 'completed' cannot be restarted. Attempting to start a non-queued job must raise IllegalJobStateError.",
+    "behavior": {
+      "precondition": "job.state != \"queued\"",
+      "prohibited_action": "start_job(job)",
+      "expected_result": "IllegalJobStateError raised"
+    },
+    "category": "state_transition",
+    "severity": "high",
+    "source_location": "requirements.md:L3"
+  }
+]

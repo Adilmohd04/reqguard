@@ -1,0 +1,8 @@
+{
+  "requirement_id": "REQ-14",
+  "mutation_id": "MUT-14",
+  "test_path": "tests/test_transfer_nonpositive.py",
+  "test_source": "import pytest\nfrom banking.transfer import BankAccount, transfer_funds, InvalidTransferAmountError\n\n\ndef test_zero_amount_transfer_is_rejected():\n    src = BankAccount(id=\"b1\", balance=100.0)\n    dst = BankAccount(id=\"b2\", balance=20.0)\n    with pytest.raises(InvalidTransferAmountError):\n        transfer_funds(src, dst, 0.0)\n    assert src.balance == 100.0\n    assert dst.balance == 20.0\n",
+  "explanation": "Attempts a zero-amount transfer and asserts it is rejected with balances unchanged. No existing test supplies zero or a negative amount, which is why shifting the boundary survived.",
+  "rationale": "pytest.raises(InvalidTransferAmountError) on a zero amount is the assertion that detects the shifted boundary."
+}

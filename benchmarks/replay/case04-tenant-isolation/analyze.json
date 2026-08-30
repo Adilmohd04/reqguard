@@ -1,0 +1,14 @@
+[
+  {
+    "id": "REQ-04",
+    "statement": "Data access must be strictly isolated to the requesting tenant. Cross-tenant record queries must raise TenantAccessDeniedError.",
+    "behavior": {
+      "precondition": "record.tenant_id != tenant_id",
+      "prohibited_action": "TenantStore.get_record(tenant_id, record_id)",
+      "expected_result": "TenantAccessDeniedError raised"
+    },
+    "category": "authorization",
+    "severity": "high",
+    "source_location": "requirements.md:L3"
+  }
+]

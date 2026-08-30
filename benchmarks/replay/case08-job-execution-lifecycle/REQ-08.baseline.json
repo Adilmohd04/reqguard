@@ -1,0 +1,6 @@
+{
+  "requirement_id": "REQ-08",
+  "status": "INSUFFICIENTLY_PROTECTED",
+  "reasoning": "The suite has two tests on start_job, both starting jobs already in state 'queued' (test_start_queued_job, test_start_job_returns_job). Neither starts a 'running' or 'completed' job, so weakening the queued-state guard would not fail any existing test.",
+  "rationale": "No test exercises the non-queued rejection path."
+}

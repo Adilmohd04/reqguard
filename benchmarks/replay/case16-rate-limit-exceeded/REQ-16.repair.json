@@ -1,0 +1,8 @@
+{
+  "requirement_id": "REQ-16",
+  "mutation_id": "MUT-16",
+  "test_path": "tests/test_limiter_exceeded.py",
+  "test_source": "import pytest\nfrom ratelimit.limiter import SlidingRateLimiter, RateLimitExceededError\n\n\ndef test_request_over_limit_is_rejected():\n    limiter = SlidingRateLimiter(limit=2)\n    limiter.record_request(\"10.0.0.9\")\n    limiter.record_request(\"10.0.0.9\")\n    with pytest.raises(RateLimitExceededError):\n        limiter.record_request(\"10.0.0.9\")\n",
+  "explanation": "Drives a client one request past a small limit and asserts the over-limit request is rejected. No existing test exceeds the limit, which is why shifting the boundary survived.",
+  "rationale": "pytest.raises(RateLimitExceededError) on the request past the limit is the assertion that detects the shifted boundary."
+}

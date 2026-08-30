@@ -1,0 +1,8 @@
+{
+  "requirement_id": "REQ-12",
+  "mutation_id": "MUT-12",
+  "test_path": "tests/test_validator_malformed.py",
+  "test_source": "import pytest\nfrom users.validator import validate_user_email, InvalidEmailFormatError\n\n\ndef test_malformed_email_is_rejected():\n    with pytest.raises(InvalidEmailFormatError):\n        validate_user_email(\"not-an-email\")\n",
+  "explanation": "Supplies a string with no '@' and asserts validate_user_email rejects it. No existing test supplies a malformed address, which is why removing the validation survived.",
+  "rationale": "pytest.raises(InvalidEmailFormatError) on a malformed address is the assertion that detects the missing validation."
+}

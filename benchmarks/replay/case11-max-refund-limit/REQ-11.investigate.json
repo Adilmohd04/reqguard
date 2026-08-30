@@ -1,0 +1,21 @@
+{
+  "requirement_id": "REQ-11",
+  "sites": [
+    {
+      "file": "src/refunds/processor.py",
+      "symbol": "process_refund",
+      "start_line": 11,
+      "end_line": 12,
+      "enforcement_snippet": "if payment.refunded_amount + amount > payment.charged_amount:\n    raise ExcessiveRefundError(f\"Refund {amount} exceeds remaining charge\")",
+      "confidence": "high"
+    }
+  ],
+  "covering_tests": [
+    "tests/test_refunds.py::test_partial_refund_success",
+    "tests/test_refunds.py::test_full_refund_success",
+    "tests/test_refunds.py::test_refund_exceeding_charge_raises_error",
+    "tests/test_refunds.py::test_cumulative_refund_exceeding_charge_raises"
+  ],
+  "domain_notes": "process_refund rejects a refund that would drive cumulative refunds past the charged amount, guarded by a single sum comparison. The suite exercises both sides: partial and full refunds succeed, a single over-charge refund raises, and a cumulative over-charge refund raises. The rejection path is directly asserted, including the cumulative case.",
+  "rationale": "Selected process_refund because it is the sole refund-limit enforcement and the suite already asserts both the single and cumulative over-refund rejection paths."
+}

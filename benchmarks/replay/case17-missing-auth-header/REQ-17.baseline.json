@@ -1,0 +1,6 @@
+{
+  "requirement_id": "REQ-17",
+  "status": "PROTECTED",
+  "reasoning": "The suite exercises every branch of extract_bearer_token: a valid token is extracted, a missing header raises, a non-Bearer (Basic) scheme raises, and a whitespace-only Bearer token raises. Any weakening of the header guard fails at least one existing rejection test, so the requirement is protected.",
+  "rationale": "The missing, malformed, and blank-token rejection branches are all directly asserted, so the header guard is protected."
+}

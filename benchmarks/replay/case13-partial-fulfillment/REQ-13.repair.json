@@ -1,0 +1,8 @@
+{
+  "requirement_id": "REQ-13",
+  "mutation_id": "MUT-13",
+  "test_path": "tests/test_fulfillment_partial.py",
+  "test_source": "from fulfillment.status import fulfillment_status\n\n\ndef test_partial_shipment_is_not_completed():\n    assert fulfillment_status(100, 80) == \"partial\"\n",
+  "explanation": "Asserts that shipping 80 of 100 reports 'partial', the precondition the requirement names. No existing test exercises a partial shipment, which is why redirecting the partial branch to 'completed' survived.",
+  "rationale": "Checking fulfillment_status(100, 80) == 'partial' is the assertion that detects a partial order being reported as completed."
+}

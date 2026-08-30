@@ -1,0 +1,19 @@
+{
+  "requirement_id": "REQ-04",
+  "sites": [
+    {
+      "file": "src/tenant/store.py",
+      "symbol": "TenantStore.get_record",
+      "start_line": 19,
+      "end_line": 20,
+      "enforcement_snippet": "if record.tenant_id != tenant_id:\n    raise TenantAccessDeniedError(f\"Tenant {tenant_id} cannot access record of {record.tenant_id}\")",
+      "confidence": "high"
+    }
+  ],
+  "covering_tests": [
+    "tests/test_tenant.py::test_get_existing_record_same_tenant",
+    "tests/test_tenant.py::test_get_missing_record_raises_key_error"
+  ],
+  "domain_notes": "get_record returns a record only when its tenant_id matches the requesting tenant, guarded by a single cross-tenant check after the existence check. Existing tests query with the record's true owning tenant or a missing id; neither issues a cross-tenant query, so the isolation guard is never exercised.",
+  "rationale": "Selected get_record because its tenant-match check is the sole isolation enforcement and no test issues a cross-tenant query."
+}

@@ -1,0 +1,19 @@
+{
+  "requirement_id": "REQ-06",
+  "sites": [
+    {
+      "file": "src/billing/subscription.py",
+      "symbol": "renew_subscription",
+      "start_line": 12,
+      "end_line": 13,
+      "enforcement_snippet": "if sub.status in (\"cancelled\", \"expired\"):\n    raise InvalidStateTransitionError(f\"Cannot renew subscription in status {sub.status}\")",
+      "confidence": "high"
+    }
+  ],
+  "covering_tests": [
+    "tests/test_subscription.py::test_renew_active_subscription",
+    "tests/test_subscription.py::test_renew_increments_term"
+  ],
+  "domain_notes": "renew_subscription rejects renewal when status is 'cancelled' or 'expired', guarded by a single membership check before it increments term_count. Both existing tests renew subscriptions in status 'active'; neither renews a cancelled or expired one, so the rejection path is never exercised.",
+  "rationale": "Selected renew_subscription because its status membership check is the sole enforcement and no test renews a non-active subscription."
+}

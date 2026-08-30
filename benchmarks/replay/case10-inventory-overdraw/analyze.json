@@ -1,0 +1,14 @@
+[
+  {
+    "id": "REQ-10",
+    "statement": "An order reservation cannot exceed available inventory stock. Requesting quantity greater than available stock must raise InsufficientInventoryError.",
+    "behavior": {
+      "precondition": "requested_qty > item.available",
+      "prohibited_action": "reserve_stock(item, requested_qty)",
+      "expected_result": "InsufficientInventoryError raised"
+    },
+    "category": "business_rule",
+    "severity": "high",
+    "source_location": "requirements.md:L3"
+  }
+]

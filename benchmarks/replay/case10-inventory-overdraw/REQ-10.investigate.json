@@ -1,0 +1,19 @@
+{
+  "requirement_id": "REQ-10",
+  "sites": [
+    {
+      "file": "src/inventory/stock.py",
+      "symbol": "reserve_stock",
+      "start_line": 11,
+      "end_line": 12,
+      "enforcement_snippet": "if requested_qty > item.available:\n    raise InsufficientInventoryError(f\"Requested {requested_qty} exceeds available {item.available}\")",
+      "confidence": "high"
+    }
+  ],
+  "covering_tests": [
+    "tests/test_stock.py::test_reserve_available_stock",
+    "tests/test_stock.py::test_reserve_all_stock"
+  ],
+  "domain_notes": "reserve_stock rejects a request larger than available stock, guarded by a single comparison. Both existing tests request at or below availability (4 of 10, and 5 of 5); neither requests more than available, so the overdraw rejection path is never exercised.",
+  "rationale": "Selected reserve_stock because its quantity comparison is the sole enforcement and no test requests an overdraw."
+}

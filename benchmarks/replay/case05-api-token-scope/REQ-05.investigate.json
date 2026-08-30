@@ -1,0 +1,20 @@
+{
+  "requirement_id": "REQ-05",
+  "sites": [
+    {
+      "file": "src/api_auth/tokens.py",
+      "symbol": "require_write_scope",
+      "start_line": 11,
+      "end_line": 12,
+      "enforcement_snippet": "if \"write\" not in token.scopes:\n    raise InsufficientScopeError(\"Missing required write scope\")",
+      "confidence": "high"
+    }
+  ],
+  "covering_tests": [
+    "tests/test_tokens.py::test_token_with_write_scope_succeeds",
+    "tests/test_tokens.py::test_token_without_write_scope_raises_error",
+    "tests/test_tokens.py::test_empty_scope_token_raises_error"
+  ],
+  "domain_notes": "require_write_scope raises unless the token carries the 'write' scope. The suite exercises both sides of the guard: a token with write succeeds, a read-only token raises, and an empty-scope token raises. The rejection path is directly asserted, so weakening the guard is caught.",
+  "rationale": "Selected require_write_scope because it is the sole scope enforcement and the suite already asserts its rejection path directly."
+}

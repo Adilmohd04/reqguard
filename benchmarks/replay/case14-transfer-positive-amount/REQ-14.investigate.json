@@ -1,0 +1,19 @@
+{
+  "requirement_id": "REQ-14",
+  "sites": [
+    {
+      "file": "src/banking/transfer.py",
+      "symbol": "transfer_funds",
+      "start_line": 10,
+      "end_line": 11,
+      "enforcement_snippet": "if amount <= 0:\n    raise InvalidTransferAmountError(f\"Transfer amount must be positive, got {amount}\")",
+      "confidence": "high"
+    }
+  ],
+  "covering_tests": [
+    "tests/test_transfer.py::test_valid_transfer_moves_funds",
+    "tests/test_transfer.py::test_insufficient_funds_raises_error"
+  ],
+  "domain_notes": "transfer_funds rejects a non-positive amount, guarded by a single boundary check before the balance check. Both existing tests supply a strictly positive amount (30, then 50); neither supplies zero or a negative amount, so the positive-amount boundary is never exercised.",
+  "rationale": "Selected transfer_funds because its amount boundary check is the sole enforcement and no test supplies a zero or negative amount."
+}

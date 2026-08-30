@@ -1,0 +1,19 @@
+{
+  "requirement_id": "REQ-13",
+  "sites": [
+    {
+      "file": "src/fulfillment/status.py",
+      "symbol": "fulfillment_status",
+      "start_line": 4,
+      "end_line": 6,
+      "enforcement_snippet": "if shipped >= ordered:\n    return \"completed\"\nreturn \"partial\"",
+      "confidence": "high"
+    }
+  ],
+  "covering_tests": [
+    "tests/test_fulfillment.py::test_zero_shipped_is_pending",
+    "tests/test_fulfillment.py::test_all_shipped_is_completed"
+  ],
+  "domain_notes": "fulfillment_status maps (ordered, shipped) to one of {pending, completed, partial}. The partial branch is the fallthrough return reached only when 0 < shipped < ordered. Both existing tests hit the boundaries (0 shipped, all shipped); neither exercises a partial shipment, so the fallthrough is untested.",
+  "rationale": "Selected fulfillment_status because its fallthrough 'partial' return is the sole enforcement of the not-completed-when-partial rule and no test covers it."
+}

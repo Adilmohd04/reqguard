@@ -1,0 +1,14 @@
+[
+  {
+    "id": "REQ-03",
+    "statement": "Users can only edit documents that they own or are explicitly shared with them. Modifying an unshared document by an unauthorized user must raise UnauthorizedError.",
+    "behavior": {
+      "precondition": "user_id != doc.owner_id and user_id not in doc.shared_with",
+      "prohibited_action": "edit_document(user_id, doc, new_content)",
+      "expected_result": "UnauthorizedError raised"
+    },
+    "category": "authorization",
+    "severity": "high",
+    "source_location": "requirements.md:L3"
+  }
+]

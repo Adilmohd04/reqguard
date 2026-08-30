@@ -1,0 +1,6 @@
+{
+  "requirement_id": "REQ-13",
+  "status": "PROTECTED",
+  "reasoning": "The suite has two tests on fulfillment_status covering both documented outcomes: zero shipped reports 'pending' and all shipped reports 'completed'. The function is small and its three branches are exercised at their boundaries, so the reporting logic appears adequately covered.",
+  "rationale": "Both status boundaries are tested, so the fulfillment reporting looks protected."
+}

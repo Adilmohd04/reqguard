@@ -1,0 +1,13 @@
+{
+  "id": "MUT-13",
+  "requirement_id": "REQ-13",
+  "mutation_type": "semantic_change",
+  "target_file": "src/fulfillment/status.py",
+  "target_symbol": "fulfillment_status",
+  "original_snippet": "    return \"partial\"",
+  "mutated_snippet": "    return \"completed\"",
+  "description": "Report a partially fulfilled order as completed instead of partial",
+  "expected_violation": "An order with fewer items shipped than ordered is reported as 'completed'",
+  "violation_scenario": "fulfillment_status(100, 80) returns 'completed' instead of 'partial'.",
+  "rationale": "Redirecting the partial fallthrough to 'completed' is the smallest change that makes a partially fulfilled order report as completed, which no catalogue mutation names."
+}

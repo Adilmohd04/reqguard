@@ -1,0 +1,13 @@
+{
+  "id": "MUT-11",
+  "requirement_id": "REQ-11",
+  "mutation_type": "comparison_change",
+  "target_file": "src/refunds/processor.py",
+  "target_symbol": "process_refund",
+  "original_snippet": "    if payment.refunded_amount + amount > payment.charged_amount:",
+  "mutated_snippet": "    if payment.refunded_amount + amount > payment.charged_amount * 10:",
+  "description": "Weaken the refund-limit comparison so refunds up to ten times the charge are allowed",
+  "expected_violation": "A refund exceeding the charged amount is accepted instead of rejected",
+  "violation_scenario": "process_refund(Payment(id='p3', charged_amount=50.0), 50.01) would be accepted, but the existing over-refund tests should catch this.",
+  "rationale": "Comparing against ten times the charge relaxes the limit, but the existing single and cumulative over-refund tests assert rejection and should kill it."
+}

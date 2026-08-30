@@ -1,0 +1,8 @@
+{
+  "requirement_id": "REQ-10",
+  "mutation_id": "MUT-10",
+  "test_path": "tests/test_stock_overdraw.py",
+  "test_source": "import pytest\nfrom inventory.stock import StockItem, reserve_stock, InsufficientInventoryError\n\n\ndef test_overdraw_is_rejected():\n    item = StockItem(sku=\"SKU-01\", available=10)\n    with pytest.raises(InsufficientInventoryError):\n        reserve_stock(item, 11)\n    assert item.available == 10\n",
+  "explanation": "Requests one more than available and asserts reserve_stock rejects the overdraw with stock unchanged. No existing test requests more than available, which is why weakening the comparison survived.",
+  "rationale": "pytest.raises(InsufficientInventoryError) on an over-available request is the assertion that detects the weakened comparison."
+}

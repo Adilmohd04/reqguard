@@ -1,0 +1,8 @@
+{
+  "requirement_id": "REQ-05",
+  "mutation_id": "MUT-05",
+  "test_path": "tests/test_tokens_readonly.py",
+  "test_source": "import pytest\nfrom api_auth.tokens import Token, require_write_scope, InsufficientScopeError\n\n\ndef test_read_only_token_is_rejected():\n    with pytest.raises(InsufficientScopeError):\n        require_write_scope(Token(token_id=\"t2\", scopes={\"read\"}))\n",
+  "explanation": "Redundant assertion of the read-only rejection path. The existing suite already covers this, so the mutation is killed and this repair is not needed; included for completeness.",
+  "rationale": "Asserts a read-only token is rejected, the behavior the existing suite already protects."
+}

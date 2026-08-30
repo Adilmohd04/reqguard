@@ -1,0 +1,6 @@
+{
+  "requirement_id": "REQ-11",
+  "status": "PROTECTED",
+  "reasoning": "The suite exercises both sides of the refund-limit guard: partial and full refunds succeed, a single refund exceeding the charge raises ExcessiveRefundError, and a cumulative refund exceeding the charge raises. Any weakening of the limit fails at least one existing rejection test, so the requirement is protected.",
+  "rationale": "The over-refund rejection path is directly asserted, including the cumulative case, so the refund limit is protected."
+}

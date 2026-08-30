@@ -1,0 +1,19 @@
+{
+  "requirement_id": "REQ-16",
+  "sites": [
+    {
+      "file": "src/ratelimit/limiter.py",
+      "symbol": "SlidingRateLimiter.record_request",
+      "start_line": 9,
+      "end_line": 10,
+      "enforcement_snippet": "if current > self.limit:\n    raise RateLimitExceededError(f\"Rate limit of {self.limit} exceeded for {client_ip}\")",
+      "confidence": "high"
+    }
+  ],
+  "covering_tests": [
+    "tests/test_limiter.py::test_first_request_allowed",
+    "tests/test_limiter.py::test_requests_under_limit_allowed"
+  ],
+  "domain_notes": "record_request increments a per-client counter and rejects once it exceeds the limit, guarded by a single comparison. Both existing tests stay well under the limit (1 request, then 6 against a limit of 60); neither drives the counter past the limit, so the over-limit rejection path is never exercised.",
+  "rationale": "Selected record_request because its limit comparison is the sole enforcement and no test exceeds the limit."
+}

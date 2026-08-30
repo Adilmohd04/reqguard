@@ -1,0 +1,8 @@
+{
+  "requirement_id": "REQ-08",
+  "mutation_id": "MUT-08",
+  "test_path": "tests/test_jobs_nonqueued.py",
+  "test_source": "import pytest\nfrom jobs.scheduler import Job, start_job, IllegalJobStateError\n\n\ndef test_completed_job_cannot_restart():\n    job = Job(id=\"j1\", state=\"completed\")\n    with pytest.raises(IllegalJobStateError):\n        start_job(job)\n    assert job.state == \"completed\"\n",
+  "explanation": "Constructs a completed job and asserts start_job rejects the restart with state unchanged. No existing test starts a non-queued job, which is why weakening the state guard survived.",
+  "rationale": "pytest.raises(IllegalJobStateError) on a completed job is the assertion that detects the weakened state guard."
+}
