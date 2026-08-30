@@ -21,7 +21,16 @@ Stage = Literal["analyze", "investigate", "plan", "repair", "baseline"]
 Effort = Literal["low", "medium", "high", "xhigh", "max"]
 
 # The one model, used by every stage and by the baseline (section 16.2).
-MODEL: str = "claude-opus-5"
+# Changed 2026-08-30 (COLLAB.md session 6): migrated to Gemini, no Anthropic
+# key available. Pinned to the exact preview string, not a `-latest` alias --
+# an alias moving under us mid-project would silently break reproducibility.
+# `gemini-3.1-pro-preview` (the higher-reasoning tier originally wanted for
+# this workload) returned HTTP 429 with an explicit `limit: 0` free-tier
+# quota on the key in use -- not rate-limited, structurally unavailable
+# without billing enabled. `gemini-3.6-flash` was verified reachable and
+# correct end-to-end (structured output, tool calling, both combined) on
+# this key this session.
+MODEL: str = "gemini-3.6-flash"
 
 # Non-streaming parse/tool-runner calls: keep the response under the SDK HTTP
 # timeout. 16k is the manual's figure (section 5.1).
@@ -64,5 +73,5 @@ def validate() -> None:
             "policy: baseline effort must be 'xhigh' -- the control arm gets the "
             "highest setting (manual section 16.2)"
         )
-    if MODEL != "claude-opus-5":
+    if MODEL != "gemini-3.6-flash":
         raise AssertionError(f"policy: unexpected model {MODEL!r}")

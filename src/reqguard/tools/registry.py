@@ -1,16 +1,32 @@
-"""Tool Runner bindings over Track A's repository read tools. Owned by Track B.
+"""Gemini automatic-function-calling bindings over Track A's repository read
+tools. Owned by Track B.
 
 This module **binds**, it does not reimplement. Every function here is a thin
-`@beta_tool` wrapper that calls the matching pure function in
-`reqguard.tools.repository` (Track A, task A2). A second copy of the read logic
-would fork the behaviour and only one copy would get tested.
+wrapper that calls the matching pure function in `reqguard.tools.repository`
+(Track A, task A2). A second copy of the read logic would fork the behaviour
+and only one copy would get tested.
 
 Reference: docs/03-implementation-manual.md sections 4.3, 5.3.
 
-Cache stability (section 4.3): the returned list is in a **fixed, sorted order**.
-Tool definitions are part of the cached prefix; a set that reorders between calls
-silently invalidates the cache and multiplies cost. `build_read_tools` sorts by
-tool name before returning, and `tool_names()` lets a test assert the order.
+**Migration note (COLLAB.md session 6):** was `@beta_tool`-decorated
+(Anthropic SDK) until 2026-08-30. Gemini's `google-genai` SDK has no decorator
+-- verified this session, `client.models.generate_content(config={"tools": [...]})`
+takes **plain Python callables** directly: it inspects each one's signature and
+docstring to build the schema itself, executes it locally when the model calls
+it, and loops automatically (`agent/client.py`'s `run_with_tools`). So the
+`@beta_tool` wrapper was removed; these are now bare functions, unchanged
+otherwise -- same signatures, same docstrings, same delegation to
+`reqguard.tools.repository`.
+
+Cache stability (section 4.3): the returned list is in a **fixed, sorted
+order**. This was written for Anthropic's explicit `cache_control` prefix
+caching, where a reordered tool set silently invalidated the cache. Gemini's
+caching is implicit/server-managed (no equivalent knob -- see `client.py`'s
+docstring), so this ordering is no longer load-bearing for cost the same way,
+but kept anyway: a stable, deterministic tool order is still worth having for
+its own sake (reproducible prompts, an assertable invariant in tests).
+`build_read_tools` sorts by tool name before returning, and `tool_names()`
+lets a test assert the order.
 """
 
 from __future__ import annotations
@@ -18,8 +34,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Callable
-
-from anthropic import beta_tool
 
 from reqguard.tools import repository
 
@@ -45,7 +59,6 @@ def build_read_tools(root: Path | str) -> list[Any]:
     """
     root = Path(root)
 
-    @beta_tool
     def list_files(glob: str = "**/*.py", limit: int = 200) -> str:
         """List repository files matching a glob.
 
@@ -55,7 +68,6 @@ def build_read_tools(root: Path | str) -> list[Any]:
         """
         return json.dumps(repository.list_files(root, glob, limit))
 
-    @beta_tool
     def read_file(path: str, start: int = 1, end: int | None = None) -> str:
         """Read a file, returning its lines with 1-indexed ``Lnn:`` prefixes.
 
@@ -66,7 +78,6 @@ def build_read_tools(root: Path | str) -> list[Any]:
         """
         return repository.read_file(root, path, start, end)
 
-    @beta_tool
     def search_code(pattern: str, glob: str = "**/*.py", limit: int = 50) -> str:
         """Search the repository with a Python regular expression.
 
@@ -77,7 +88,6 @@ def build_read_tools(root: Path | str) -> list[Any]:
         """
         return json.dumps(repository.search_code(root, pattern, glob, limit))
 
-    @beta_tool
     def find_symbol(name: str) -> str:
         """Find a function or class definition by name (AST walk).
 
@@ -86,7 +96,6 @@ def build_read_tools(root: Path | str) -> list[Any]:
         """
         return json.dumps(repository.find_symbol(root, name))
 
-    @beta_tool
     def find_references(name: str) -> str:
         """Find where a symbol is used. WORD-BOUNDARY REGEX, NOT scope-aware —
         results include comments, strings, and unrelated same-named symbols.
@@ -97,12 +106,10 @@ def build_read_tools(root: Path | str) -> list[Any]:
         """
         return json.dumps(repository.find_references(root, name))
 
-    @beta_tool
     def inspect_tests() -> str:
         """List the project's collected pytest node ids."""
         return json.dumps(repository.inspect_tests(root))
 
-    @beta_tool
     def git_diff(ref: str = "HEAD") -> str:
         """Return ``git diff`` against a ref, or an empty string on a non-git dir.
 
@@ -124,10 +131,13 @@ def build_read_tools(root: Path | str) -> list[Any]:
 
 
 def tool_names(tools: list[Any]) -> list[str]:
-    """The tool names in the order they appear — for a cache-stability assertion."""
+    """The tool names in the order they appear — for an order-stability
+    assertion. `tools` are now plain callables (`__name__`), not Anthropic
+    `@beta_tool` objects (`.name`) or JSON-schema dicts -- all three forms
+    are still accepted so an old fixture or test double doesn't break."""
     names: list[str] = []
     for t in tools:
-        name = getattr(t, "name", None)
+        name = getattr(t, "name", None) or getattr(t, "__name__", None)
         if name is None and isinstance(t, dict):
             name = t.get("name")
         names.append(name or repr(t))

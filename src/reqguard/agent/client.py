@@ -1,25 +1,70 @@
-"""The single Anthropic call surface for ReqGuard. Owned by Track B.
+"""The single Gemini call surface for ReqGuard. Owned by Track B.
 
 Every model call in the repository goes through this module. Tracks A, C, D and E
 import nothing from `reqguard.agent`, so the deterministic core and the evaluator
 run in CI with no API key.
 
-Verified against the Anthropic Python SDK this session
-(docs/03-implementation-manual.md section 1):
+**Migration note (COLLAB.md session 6):** this module was Anthropic/Claude-opus-5
+until 2026-08-30. The human explicitly directed a provider switch (no Anthropic
+key available). Every shape below was verified empirically against the real
+`google-genai` SDK this session -- not written from memory -- for exactly the
+reason this repo's own docs warn about on the Anthropic side: a wrong API shape
+costs a live run, not a review comment.
 
-- `messages.parse(..., output_format=Model)` returns `resp.parsed_output`, validated.
-- `thinking={"type": "adaptive"}` -- on by default on Opus 5; `display` left at its
-  default (`omitted`). We never set `summarized` (section 11, blueprint section 29).
-- `output_config={"effort": ...}` -- effort is nested, never a top-level kwarg.
-- NO `budget_tokens` -- removed on Opus 5, sending it is a 400.
-- NO assistant prefill -- a 400 on Opus 5; structured output replaces it.
-- The `system` block is a single cached text block. Nothing is interpolated into
-  it -- any per-run byte change invalidates the cached prefix (5x cost).
-- Retries are the SDK's (2, exponential backoff, 429/5xx/connection). No `tenacity`.
+Verified against `google-genai==2.20.0` this session:
 
-`pause_turn` only arises from server-side tools and we declare none. If it appears
-we raise `ReqGuardInternalError` rather than return a silently truncated answer
-(section 10.3).
+- `genai.Client()` — zero-arg, resolves `GEMINI_API_KEY` then `GOOGLE_API_KEY`
+  from the environment. **Unlike the old Anthropic client, this validates the
+  key at construction time, not on first call** — verified directly: a bare
+  `genai.Client()` with no key set raises `ValueError` immediately. Anthropic's
+  `anthropic.Anthropic()` deferred that to the first real request, which is
+  what let `--replay` mode, `doctor`, and CI run with zero key present. To
+  preserve that same "no key needed unless you actually call the model"
+  contract, construction here is lazy (`_get_client()`, built and cached on
+  first real use) rather than a module-level `_client = genai.Client()`.
+- `client.models.generate_content(model=..., contents=..., config={...})` is
+  the one call shape used for every stage, structured or tool-using.
+- Structured output: `config["response_mime_type"] = "application/json"` +
+  `config["response_schema"] = <BaseModel subclass or list[BaseModel]>` — the
+  SDK validates and the parsed instance comes back on `response.parsed`.
+  `list[Requirement]` (a bare generic, not wrapped) works directly — verified,
+  matches what `requirement_analyzer.py` already passes as `output_format`.
+- Tool use: pass **plain Python callables** in `config["tools"]`, not a
+  JSON-schema dict and not an SDK decorator (there is no Gemini equivalent of
+  `@beta_tool` — `tools/registry.py` was updated to return bare functions).
+  The SDK inspects each callable's signature + docstring, executes it locally
+  when the model calls it, and loops automatically — no manual runner, no
+  `pause_turn` concept (that was Anthropic server-tool-specific; Gemini's
+  automatic function calling either finishes with a real answer or the
+  `finish_reason` check below catches it).
+- Tools and `response_schema` **can be combined in one call** — verified: the
+  model tool-calls, the SDK executes and re-prompts automatically, and the
+  final turn's `response.parsed` is still populated. This is what makes
+  `run_with_tools` a single call here rather than a driven loop.
+- Effort ladder: Gemini's `thinking_config.thinking_level` only has four
+  rungs (`MINIMAL`/`LOW`/`MEDIUM`/`HIGH`) against Anthropic's five
+  (`low/medium/high/xhigh/max`). `xhigh` and `max` both collapse to `HIGH` --
+  documented in `_THINKING_LEVEL` below, not silently lossy.
+- System prompt: `config["system_instruction"]` — a plain string. Gemini's
+  prompt caching is **implicit and server-managed** (no `cache_control`
+  block to set), so nothing here opts into caching the way the old
+  `_system_block`'s `cache_control: ephemeral` did — there is no equivalent
+  knob on this SDK version. Track C's §11.3 cache-miss alarm was built
+  against Anthropic's explicit `cache_read_input_tokens` field; it will not
+  fire meaningfully against Gemini's `cached_content_token_count` semantics
+  without Track C updating that check — flagged in COLLAB.md, not silently
+  patched here since `tracing/trajectory.py` isn't this module's file.
+- Usage/cost fields on `response.usage_metadata` (real field names, this SDK
+  version): `prompt_token_count`, `candidates_token_count`,
+  `cached_content_token_count`, `thoughts_token_count`, `total_token_count`.
+  Different names than Anthropic's `input_tokens`/`output_tokens`/
+  `cache_read_input_tokens`/`cache_creation_input_tokens` — `trajectory.py`'s
+  `_coerce_usage` already duck-types via `model_dump()`, so it captures these
+  new fields verbatim without needing a code change there; only a downstream
+  reader hardcoded to the old field names would need updating (flagged, not
+  found in this module's scope).
+- Retries: the SDK retries internally (`tenacity`-backed, transient 5xx/429
+  handled). No extra retry wrapper here.
 """
 
 from __future__ import annotations
@@ -28,25 +73,41 @@ import argparse
 import sys
 from typing import Any, Protocol, TypeVar
 
-import anthropic
+from google import genai
+from google.genai import types
 from pydantic import BaseModel
 
 from reqguard.errors import ReqGuardInternalError
 from reqguard.agent import policy
-from reqguard.agent.policy import EFFORT, MAX_TOKENS, MODEL
+from reqguard.agent.policy import MAX_TOKENS, MODEL
 
 __all__ = ["structured", "run_with_tools", "Trace"]
 
 _T = TypeVar("_T", bound=BaseModel)
 
-# Zero-arg: resolves ANTHROPIC_API_KEY -> ANTHROPIC_AUTH_TOKEN -> `ant auth login`
-# profile. Never a hardcoded key. Construction does not require a credential; the
-# first real call does.
-_client = anthropic.Anthropic()
+# Lazy, cached client. `genai.Client()` validates the key at construction
+# (verified -- unlike anthropic.Anthropic(), it raises immediately with no
+# key set), so building it eagerly at import time would force every
+# --replay/doctor/CI invocation to have a real key just to import this
+# module. Never a hardcoded key; resolves GEMINI_API_KEY -> GOOGLE_API_KEY.
+_client: genai.Client | None = None
 
-# Adaptive thinking, display left at the SDK default (omitted). Frozen here as a
-# module constant so no call site can pass a variant.
-_THINKING: dict[str, str] = {"type": "adaptive"}
+
+def _get_client() -> genai.Client:
+    global _client
+    if _client is None:
+        _client = genai.Client()
+    return _client
+
+# Gemini's thinking ladder is 4 rungs; ours (policy.py) is 5. xhigh/max both
+# collapse to HIGH -- there is no 5th tier to map them to on this SDK.
+_THINKING_LEVEL: dict[str, str] = {
+    "low": "LOW",
+    "medium": "MEDIUM",
+    "high": "HIGH",
+    "xhigh": "HIGH",
+    "max": "HIGH",
+}
 
 
 class Trace(Protocol):
@@ -63,52 +124,42 @@ class _NullTrace:
         return None
 
 
-def _system_block(system: str) -> list[dict[str, Any]]:
-    """The cached system block. One text block, `cache_control` ephemeral, and
-    the text is exactly `system` -- nothing is interpolated. Callers pass the
-    prompt file contents verbatim; the volatile content goes in the user turn."""
-    return [
-        {
-            "type": "text",
-            "text": system,
-            "cache_control": {"type": "ephemeral"},
-        }
-    ]
-
-
-def _request_kwargs(
+def _config(
     stage: str,
     system: str,
-    user: str,
     *,
-    output_format: type[BaseModel] | None = None,
+    response_schema: Any | None = None,
     tools: list[Any] | None = None,
 ) -> dict[str, Any]:
-    """Build the kwargs common to every ReqGuard model call.
+    """Build the config dict common to every ReqGuard model call.
 
     Pure and side-effect free so the smoke check can assert the invariants
     without a network call.
     """
-    kwargs: dict[str, Any] = {
-        "model": MODEL,
-        "max_tokens": MAX_TOKENS,
-        "thinking": dict(_THINKING),
-        "output_config": {"effort": policy.effort_for(stage)},
-        "system": _system_block(system),
-        "messages": [{"role": "user", "content": user}],
+    cfg: dict[str, Any] = {
+        "system_instruction": system,
+        "thinking_config": {"thinking_level": _THINKING_LEVEL[policy.effort_for(stage)]},
+        "max_output_tokens": MAX_TOKENS,
     }
-    if output_format is not None:
-        kwargs["output_format"] = output_format
+    if response_schema is not None:
+        cfg["response_mime_type"] = "application/json"
+        cfg["response_schema"] = response_schema
     if tools is not None:
-        kwargs["tools"] = tools
-    return kwargs
+        cfg["tools"] = tools
+    return cfg
 
 
-def _assert_not_paused(message: Any) -> None:
-    if message is not None and getattr(message, "stop_reason", None) == "pause_turn":
-        raise ReqGuardInternalError(
-            "unexpected pause_turn -- no server-side tools are declared"
-        )
+def _assert_finished(response: Any) -> None:
+    """No partial answers accepted. `finish_reason` anything but STOP --
+    MAX_TOKENS, SAFETY, RECITATION, a dangling tool call the SDK gave up
+    on -- is a loud failure, not a silently truncated result."""
+    candidates = getattr(response, "candidates", None) or []
+    for c in candidates:
+        reason = getattr(c, "finish_reason", None)
+        if reason is not None and reason != types.FinishReason.STOP:
+            raise ReqGuardInternalError(
+                f"unexpected finish_reason={reason!r} -- expected STOP"
+            )
 
 
 def structured(
@@ -118,18 +169,22 @@ def structured(
     output_format: type[_T],
     trace: Trace | None = None,
 ) -> _T:
-    """A single structured call: `messages.parse` with a Pydantic `output_format`.
+    """A single structured call. Stages 1 (analyze) and 3 (plan) use this.
 
-    Stages 1 (analyze) and 3 (plan) use this. Returns the validated model
-    instance. The response's request id and usage are handed to `trace`.
+    Returns the validated model instance from `response.parsed`. The full
+    response (for its `usage_metadata`) is handed to `trace`.
     """
     trace = trace or _NullTrace()
-    resp = _client.messages.parse(**_request_kwargs(
-        stage, system, user, output_format=output_format
-    ))
-    trace.api_call(stage, resp)
-    _assert_not_paused(resp)
-    return resp.parsed_output
+    response = _get_client().models.generate_content(
+        model=MODEL,
+        contents=user,
+        config=_config(stage, system, response_schema=output_format),
+    )
+    trace.api_call(stage, response)
+    _assert_finished(response)
+    if response.parsed is None:
+        raise ReqGuardInternalError(f"{stage}: model returned no parsed structured output")
+    return response.parsed
 
 
 def run_with_tools(
@@ -140,25 +195,32 @@ def run_with_tools(
     output_format: type[_T],
     trace: Trace | None = None,
 ) -> _T:
-    """A tool-using stage driven by the SDK Tool Runner, ending in a validated
-    structured output. Stages 2 (investigate) and 5 (repair) use this.
+    """A tool-using stage ending in a validated structured output. Stages 2
+    (investigate) and 5 (repair) use this.
 
-    The tool list must already be in a fixed, sorted order -- it is part of the
-    cached prefix and a set that reorders between calls silently invalidates the
-    cache (section 4.3). This function does not sort; `tools/registry.py` does.
+    Gemini's automatic function calling handles the whole loop inside this one
+    `generate_content` call: it calls each declared Python callable locally as
+    the model requests, feeds results back, and keeps going until the model
+    produces a final answer matching `output_format` -- verified this session,
+    not assumed. `tools` must already be in the fixed, sorted order
+    `tools/registry.py` returns (kept for parity with the old cache-ordering
+    discipline, though Gemini's implicit caching doesn't depend on it the way
+    Anthropic's explicit `cache_control` prefix did).
     """
     trace = trace or _NullTrace()
-    runner = _client.beta.messages.tool_runner(**_request_kwargs(
-        stage, system, user, output_format=output_format, tools=tools
-    ))
-    last: Any = None
-    for message in runner:
-        last = message
-        trace.api_call(stage, message)
-    _assert_not_paused(last)
-    if last is None:
-        raise ReqGuardInternalError(f"{stage}: tool runner yielded no message")
-    return last.parse()
+    response = _get_client().models.generate_content(
+        model=MODEL,
+        contents=user,
+        config=_config(stage, system, response_schema=output_format, tools=tools),
+    )
+    trace.api_call(stage, response)
+    _assert_finished(response)
+    if response.parsed is None:
+        raise ReqGuardInternalError(
+            f"{stage}: tool-calling run produced no structured output "
+            f"(finish_reason={getattr(response.candidates[0], 'finish_reason', None)!r})"
+        )
+    return response.parsed
 
 
 # ── smoke check: the B1 gate ─────────────────────────────────────────────────
@@ -166,58 +228,45 @@ def run_with_tools(
 def _smoke() -> int:
     """`python -m reqguard.agent.client --smoke`. Asserts the call shape and the
     policy table without spending a token."""
-    import inspect
-    import re
-
     policy.validate()
 
-    src = inspect.getsource(sys.modules[__name__])
-    if re.search(r"^\s*(import|from)\s+tenacity\b", src, re.MULTILINE):
-        raise AssertionError("client: no tenacity import -- the SDK already retries")
-    if "tenacity" in sys.modules:
-        raise AssertionError("client: tenacity got imported somewhere -- the SDK retries")
-
     for stage in policy.STAGES:
-        k = _request_kwargs(stage, "SYSTEM PROMPT TEXT", "volatile user content")
+        cfg = _config(stage, "SYSTEM PROMPT TEXT", response_schema=None)
 
-        assert k["model"] == "claude-opus-5", k["model"]
-        assert k["max_tokens"] == MAX_TOKENS
+        assert cfg["system_instruction"] == "SYSTEM PROMPT TEXT"
+        assert "thinking_config" in cfg
+        level = cfg["thinking_config"]["thinking_level"]
+        assert level in ("LOW", "MEDIUM", "HIGH"), level
+        assert level == _THINKING_LEVEL[policy.effort_for(stage)]
+        assert "response_mime_type" not in cfg, "no schema passed -- must not appear"
+        assert "tools" not in cfg, "no tools passed -- must not appear"
 
-        assert k["thinking"] == {"type": "adaptive"}, k["thinking"]
-        assert "display" not in k["thinking"], "display must be left at default"
-        assert "budget_tokens" not in k["thinking"], "budget_tokens is a 400 on Opus 5"
-        assert "budget_tokens" not in k, "budget_tokens must not appear anywhere"
+    with_schema = _config("analyze", "SYS", response_schema=str)
+    assert with_schema["response_mime_type"] == "application/json"
+    assert with_schema["response_schema"] is str
 
-        assert "effort" in k["output_config"], "effort must be inside output_config"
-        assert "effort" not in k, "effort must NOT be a top-level kwarg"
-        assert k["output_config"]["effort"] == EFFORT[stage], stage
+    with_tools = _config("investigate", "SYS", response_schema=str, tools=["placeholder"])
+    assert with_tools["tools"] == ["placeholder"]
 
-        sysb = k["system"]
-        assert isinstance(sysb, list) and len(sysb) == 1, sysb
-        assert sysb[0]["type"] == "text"
-        assert sysb[0]["text"] == "SYSTEM PROMPT TEXT", "nothing interpolated into system"
-        assert sysb[0]["cache_control"] == {"type": "ephemeral"}, sysb[0]
+    # the one call surface exists -- checked on the class, not an instance,
+    # since the smoke check must never require a key (no _get_client() call)
+    assert callable(genai.Client.models.fget), "genai.Client has no .models property"
 
-        assert k["messages"] == [{"role": "user", "content": "volatile user content"}]
-        assert "tool_choice" not in k, "no forced tool choice"
-        assert "stop_sequences" not in k
+    # finish_reason assertion fires on anything but STOP
+    class _Candidate:
+        finish_reason = types.FinishReason.MAX_TOKENS
 
-    # the two call surfaces exist
-    assert callable(_client.messages.parse)
-    assert callable(_client.beta.messages.tool_runner)
-
-    # pause_turn assertion fires
-    class _Paused:
-        stop_reason = "pause_turn"
+    class _Truncated:
+        candidates = [_Candidate()]
 
     try:
-        _assert_not_paused(_Paused())
+        _assert_finished(_Truncated())
     except ReqGuardInternalError:
         pass
     else:
-        raise AssertionError("pause_turn assertion did not fire")
+        raise AssertionError("finish_reason assertion did not fire")
 
-    print("client smoke OK:", MODEL, "| effort", dict(EFFORT))
+    print("client smoke OK:", MODEL, "| thinking levels", dict(_THINKING_LEVEL))
     return 0
 
 
