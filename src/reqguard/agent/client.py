@@ -50,6 +50,7 @@ import argparse
 import sys
 from typing import Any, Protocol, TypeVar, get_args, get_origin
 
+import openai
 from openai import OpenAI
 from pydantic import BaseModel, create_model
 
@@ -165,6 +166,28 @@ def _assert_finished(response: Any) -> None:
             )
 
 
+def _call(fn: Any, **kwargs: Any) -> Any:
+    """Call an OpenAI SDK method, translating any HTTP-status failure
+    (`openai.APIStatusError` -- 401/403/404/429/5xx, covers auth failures,
+    account-level gates, rate limits, and provider outages alike) into a
+    `ReqGuardInternalError` carrying the provider's own message.
+
+    Found by actually running a live call, not written defensively in
+    advance: a Conduit 403 ("subscription_required" -- the free tier gates on
+    a Telegram channel join, an account-policy condition, not a code bug)
+    came back as a raw, unhandled framework traceback all the way to the
+    terminal. `_assert_finished` and the missing-key check already raise
+    typed errors for the failure modes this module causes itself; this is
+    the same discipline applied to failures the *provider* returns instead.
+    """
+    try:
+        return fn(**kwargs)
+    except openai.APIStatusError as exc:
+        raise ReqGuardInternalError(
+            f"provider error ({exc.status_code}): {exc.message}"
+        ) from exc
+
+
 def structured(
     stage: str,
     system: str,
@@ -184,7 +207,8 @@ def structured(
     if wrap:
         response_format, _ = _envelope_for(output_format)
 
-    response = _get_client().beta.chat.completions.parse(
+    response = _call(
+        _get_client().beta.chat.completions.parse,
         messages=_messages(system, user),
         response_format=response_format,
         **_common_kwargs(stage),
@@ -224,7 +248,8 @@ def run_with_tools(
     messages = _messages(system, user)
 
     for _round in range(_MAX_TOOL_ROUNDS):
-        response = client.chat.completions.create(
+        response = _call(
+            client.chat.completions.create,
             messages=messages,
             tools=schemas,
             **_common_kwargs(stage),
@@ -270,7 +295,8 @@ def run_with_tools(
     if wrap:
         response_format, _ = _envelope_for(output_format)
 
-    final = client.beta.chat.completions.parse(
+    final = _call(
+        client.beta.chat.completions.parse,
         messages=messages + [
             {
                 "role": "user",

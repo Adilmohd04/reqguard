@@ -36,8 +36,19 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CASE01 = REPO_ROOT / "benchmarks" / "case01-cancelled-order-shipping"
 
 live = pytest.mark.skipif(
-    not os.environ.get("OPENROUTER_API_KEY"),
-    reason="live test — needs OPENROUTER_API_KEY",
+    not os.environ.get("REQGUARD_RUN_LIVE_TESTS"),
+    reason=(
+        "live test — needs REQGUARD_RUN_LIVE_TESTS=1 (an explicit opt-in) "
+        "*and* a real provider key. Found by actually running the suite: "
+        "the default `pytest -q` gate is supposed to be free/fast/no-key "
+        "(that's the whole point of the @live split), but checking only for "
+        "a key here meant a real .env sitting on disk for live CLI use (not "
+        "for testing) silently turned every plain test run into a slow, "
+        "paid, real-model call -- 32 minutes instead of ~70s, and it failed,"
+        " because client.py resolves its own key independently of this "
+        "check. Requiring a separate explicit flag keeps a present .env "
+        "from ever triggering this by accident."
+    ),
 )
 
 
