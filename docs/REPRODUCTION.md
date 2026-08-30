@@ -36,8 +36,8 @@ offline replay scores as if they were live-model results.
 | Docker | Docker with Compose v2 (`docker compose`, not `docker-compose`) |
 | Local  | Python 3.12+, [`uv`](https://docs.astral.sh/uv/), and nothing else |
 
-No `ANTHROPIC_API_KEY` is required for either offline path. A key is only needed
-for the optional live run at the very end.
+No API key is required for either offline path. A key is only needed for the
+optional live run at the very end (see that section for which one).
 
 ---
 
@@ -182,12 +182,22 @@ of tests that need `os.symlink` skip unless the process has the symlink privileg
 ## Optional — a live, paid run (real model numbers)
 
 This is the **only** path that produces model-generated numbers, and it spends
-budget. It needs `ANTHROPIC_API_KEY` in the host environment.
+budget. The model provider has changed as the project evolved (see
+`CHANGELOG.md` and `COLLAB.md` for the full history) — it currently runs on
+`gpt-5` via a Conduit endpoint, falling back to OpenRouter. It needs one of
+these two in the host environment:
+
+```bash
+export CONDUIT_API_KEY=...
+export CONDUIT_BASE_URL=https://conduit.ozdoev.net/v1
+# or, if you don't have a Conduit key:
+export OPENROUTER_API_KEY=...
+```
 
 Docker (opt-in profile, so a bare `docker compose up` can never trigger it):
 
 ```bash
-export ANTHROPIC_API_KEY=...
+export CONDUIT_API_KEY=...   # or OPENROUTER_API_KEY
 docker compose --profile live run benchmark-live
 docker compose run evaluate
 ```
@@ -195,7 +205,7 @@ docker compose run evaluate
 Local:
 
 ```bash
-export ANTHROPIC_API_KEY=...          # or: ant auth login
+export CONDUIT_API_KEY=...            # or: OPENROUTER_API_KEY=...
 reqguard benchmark --arm both         # note: NO --replay  → live calls
 reqguard evaluate --results benchmarks/results/<ts>
 ```
