@@ -127,18 +127,133 @@ def build_read_tools(root: Path | str) -> list[Any]:
         "inspect_tests": inspect_tests,
         "git_diff": git_diff,
     }
-    return [by_name[n] for n in TOOL_NAMES]
+
+    # OpenAI/OpenRouter function schemas, one per tool, in the canonical order.
+    # Each entry is {"schema": <openai tool dict>, "impl": <callable>} — the
+    # client's run_with_tools reads `schema` to send and `impl` to execute.
+    return [{"schema": _SCHEMAS[n], "impl": by_name[n]} for n in TOOL_NAMES]
+
+
+# ── OpenAI/OpenRouter function schemas ──────────────────────────────────────
+# Hand-written (not decorator-introspected) so the JSON Schema is explicit and
+# stable. Descriptions mirror the docstrings above; keep them in sync.
+_SCHEMAS: dict[str, dict[str, Any]] = {
+    "list_files": {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": "List repository files matching a glob.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "glob": {"type": "string", "description": "Glob pattern, POSIX separators."},
+                    "limit": {"type": "integer", "description": "Max paths to return."},
+                },
+            },
+        },
+    },
+    "read_file": {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a file, returning lines with 1-indexed Lnn: prefixes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Repo-relative path."},
+                    "start": {"type": "integer", "description": "First line (1-indexed)."},
+                    "end": {"type": "integer", "description": "Last line (1-indexed)."},
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    "search_code": {
+        "type": "function",
+        "function": {
+            "name": "search_code",
+            "description": "Search the repository with a Python regular expression.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "Python regular expression."},
+                    "glob": {"type": "string", "description": "Restrict to files matching this glob."},
+                    "limit": {"type": "integer", "description": "Max matches to return."},
+                },
+                "required": ["pattern"],
+            },
+        },
+    },
+    "find_symbol": {
+        "type": "function",
+        "function": {
+            "name": "find_symbol",
+            "description": "Find a function or class definition by name (AST walk).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Exact function or class name."},
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    "find_references": {
+        "type": "function",
+        "function": {
+            "name": "find_references",
+            "description": (
+                "Find where a symbol is used. WORD-BOUNDARY REGEX, NOT scope-aware "
+                "— results include comments, strings, and unrelated same-named "
+                "symbols. Treat every hit as a candidate to verify by reading."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "The identifier to search for."},
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    "inspect_tests": {
+        "type": "function",
+        "function": {
+            "name": "inspect_tests",
+            "description": "List the project's collected pytest node ids.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    "git_diff": {
+        "type": "function",
+        "function": {
+            "name": "git_diff",
+            "description": "Return git diff against a ref, or '' on a non-git dir.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ref": {"type": "string", "description": "The git ref to diff against."},
+                },
+            },
+        },
+    },
+}
 
 
 def tool_names(tools: list[Any]) -> list[str]:
     """The tool names in the order they appear — for an order-stability
-    assertion. `tools` are now plain callables (`__name__`), not Anthropic
-    `@beta_tool` objects (`.name`) or JSON-schema dicts -- all three forms
-    are still accepted so an old fixture or test double doesn't break."""
+    assertion. Accepts the current OpenAI form ({"schema": {...}, "impl": fn}),
+    and older forms (plain callables with __name__, Anthropic .name objects,
+    or bare schema dicts) so an old fixture or test double doesn't break."""
     names: list[str] = []
     for t in tools:
-        name = getattr(t, "name", None) or getattr(t, "__name__", None)
-        if name is None and isinstance(t, dict):
-            name = t.get("name")
+        name = None
+        if isinstance(t, dict):
+            if "schema" in t:
+                name = t["schema"].get("function", {}).get("name")
+            else:
+                name = t.get("name") or t.get("function", {}).get("name")
+        if name is None:
+            name = getattr(t, "name", None) or getattr(t, "__name__", None)
         names.append(name or repr(t))
     return names

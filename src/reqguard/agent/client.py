@@ -1,112 +1,109 @@
-"""The single Gemini call surface for ReqGuard. Owned by Track B.
+"""The single OpenRouter call surface for ReqGuard. Owned by Track B.
 
 Every model call in the repository goes through this module. Tracks A, C, D and E
 import nothing from `reqguard.agent`, so the deterministic core and the evaluator
 run in CI with no API key.
 
-**Migration note (COLLAB.md session 6):** this module was Anthropic/Claude-opus-5
-until 2026-08-30. The human explicitly directed a provider switch (no Anthropic
-key available). Every shape below was verified empirically against the real
-`google-genai` SDK this session -- not written from memory -- for exactly the
-reason this repo's own docs warn about on the Anthropic side: a wrong API shape
-costs a live run, not a review comment.
+**Migration note (COLLAB.md):** Anthropic/claude-opus-5 -> Gemini -> now
+OpenRouter, each an explicit human decision (no Anthropic key; Gemini free tier
+hit 429 RESOURCE_EXHAUSTED with no billing). OpenRouter fronts many models behind
+an **OpenAI-compatible** API, so this module uses the `openai` SDK pointed at
+`https://openrouter.ai/api/v1`. The external contract is unchanged:
+`structured()` and `run_with_tools()` keep their exact signatures, so no stage
+module or the orchestrator changed.
 
-Verified against `google-genai==2.20.0` this session:
+Verified empirically against `openai==3.6.0` + OpenRouter this session (a probe
+script ran real structured-output and tool-calling calls before this was
+written -- not from memory):
 
-- `genai.Client()` — zero-arg, resolves `GEMINI_API_KEY` then `GOOGLE_API_KEY`
-  from the environment. **Unlike the old Anthropic client, this validates the
-  key at construction time, not on first call** — verified directly: a bare
-  `genai.Client()` with no key set raises `ValueError` immediately. Anthropic's
-  `anthropic.Anthropic()` deferred that to the first real request, which is
-  what let `--replay` mode, `doctor`, and CI run with zero key present. To
-  preserve that same "no key needed unless you actually call the model"
-  contract, construction here is lazy (`_get_client()`, built and cached on
-  first real use) rather than a module-level `_client = genai.Client()`.
-- `client.models.generate_content(model=..., contents=..., config={...})` is
-  the one call shape used for every stage, structured or tool-using.
-- Structured output: `config["response_mime_type"] = "application/json"` +
-  `config["response_schema"] = <BaseModel subclass or list[BaseModel]>` — the
-  SDK validates and the parsed instance comes back on `response.parsed`.
-  `list[Requirement]` (a bare generic, not wrapped) works directly — verified,
-  matches what `requirement_analyzer.py` already passes as `output_format`.
-- Tool use: pass **plain Python callables** in `config["tools"]`, not a
-  JSON-schema dict and not an SDK decorator (there is no Gemini equivalent of
-  `@beta_tool` — `tools/registry.py` was updated to return bare functions).
-  The SDK inspects each callable's signature + docstring, executes it locally
-  when the model calls it, and loops automatically — no manual runner, no
-  `pause_turn` concept (that was Anthropic server-tool-specific; Gemini's
-  automatic function calling either finishes with a real answer or the
-  `finish_reason` check below catches it).
-- Tools and `response_schema` **can be combined in one call** — verified: the
-  model tool-calls, the SDK executes and re-prompts automatically, and the
-  final turn's `response.parsed` is still populated. This is what makes
-  `run_with_tools` a single call here rather than a driven loop.
-- Effort ladder: Gemini's `thinking_config.thinking_level` only has four
-  rungs (`MINIMAL`/`LOW`/`MEDIUM`/`HIGH`) against Anthropic's five
-  (`low/medium/high/xhigh/max`). `xhigh` and `max` both collapse to `HIGH` --
-  documented in `_THINKING_LEVEL` below, not silently lossy.
-- System prompt: `config["system_instruction"]` — a plain string. Gemini's
-  prompt caching is **implicit and server-managed** (no `cache_control`
-  block to set), so nothing here opts into caching the way the old
-  `_system_block`'s `cache_control: ephemeral` did — there is no equivalent
-  knob on this SDK version. Track C's §11.3 cache-miss alarm was built
-  against Anthropic's explicit `cache_read_input_tokens` field; it will not
-  fire meaningfully against Gemini's `cached_content_token_count` semantics
-  without Track C updating that check — flagged in COLLAB.md, not silently
-  patched here since `tracing/trajectory.py` isn't this module's file.
-- Usage/cost fields on `response.usage_metadata` (real field names, this SDK
-  version): `prompt_token_count`, `candidates_token_count`,
-  `cached_content_token_count`, `thoughts_token_count`, `total_token_count`.
-  Different names than Anthropic's `input_tokens`/`output_tokens`/
-  `cache_read_input_tokens`/`cache_creation_input_tokens` — `trajectory.py`'s
-  `_coerce_usage` already duck-types via `model_dump()`, so it captures these
-  new fields verbatim without needing a code change there; only a downstream
-  reader hardcoded to the old field names would need updating (flagged, not
-  found in this module's scope).
-- Retries: the SDK retries internally (`tenacity`-backed, transient 5xx/429
-  handled). No extra retry wrapper here.
+- `OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_API_KEY)`.
+  Constructed **lazily** (`_get_client()`), so --replay/doctor/CI need no key --
+  same contract the Gemini port preserved. Key resolves from `OPENROUTER_API_KEY`.
+- Model: pinned in policy.py. A free model must support BOTH structured output
+  and tool calling; `nvidia/nemotron-3-super-120b-a12b:free` was verified to do
+  both. Many free models do neither -- do not swap the model without re-probing.
+- Structured output: `client.beta.chat.completions.parse(..., response_format=
+  <BaseModel or list-wrapper>)`; the parsed instance is on
+  `choices[0].message.parsed`. Top-level `list[Requirement]` is not a valid
+  OpenAI `response_format` (must be a single BaseModel), so `structured()` wraps
+  a bare `list[...]` in a one-field envelope model and unwraps it -- transparent
+  to callers, `requirement_analyzer.py` still passes `list[Requirement]`.
+- Tool use: OpenAI-style `tools=[{"type":"function","function":{...}}]` from
+  `tools/registry.py`. Unlike Gemini's automatic function calling, OpenAI does
+  NOT execute tools for you -- `run_with_tools` drives the loop: call, run the
+  requested functions locally, feed results back as `role:"tool"` messages,
+  repeat until the model stops requesting tools, then one final structured parse.
+- Effort ladder: OpenAI/OpenRouter has no first-class "effort" knob across all
+  models. Mapped to `reasoning_effort` where the model honors it (low/medium/
+  high; our xhigh/max collapse to high) and otherwise ignored server-side --
+  documented in `_REASONING_EFFORT`, not silently lossy.
+- Usage: `response.usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`).
+  `trajectory.py`'s `_coerce_usage` duck-types via `model_dump()`, so it captures
+  these verbatim; only a reader hardcoded to Anthropic/Gemini field names would
+  need updating (flagged in COLLAB.md, not in this module's scope).
+- Retries: the `openai` SDK retries transient 429/5xx internally. No extra wrapper.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
-from typing import Any, Protocol, TypeVar
+from typing import Any, Protocol, TypeVar, get_args, get_origin
 
-from google import genai
-from google.genai import types
-from pydantic import BaseModel
+from openai import OpenAI
+from pydantic import BaseModel, create_model
 
 from reqguard.errors import ReqGuardInternalError
 from reqguard.agent import policy
-from reqguard.agent.policy import MAX_TOKENS, MODEL
+from reqguard.agent.policy import BASE_URL, MAX_TOKENS, MODEL
 
 __all__ = ["structured", "run_with_tools", "Trace"]
 
 _T = TypeVar("_T", bound=BaseModel)
 
-# Lazy, cached client. `genai.Client()` validates the key at construction
-# (verified -- unlike anthropic.Anthropic(), it raises immediately with no
-# key set), so building it eagerly at import time would force every
-# --replay/doctor/CI invocation to have a real key just to import this
-# module. Never a hardcoded key; resolves GEMINI_API_KEY -> GOOGLE_API_KEY.
-_client: genai.Client | None = None
+# OpenRouter tool-call round-trips before we stop looping and FORCE a final
+# structured answer (tools withheld on that last call). Small models on the free
+# tier tend to keep calling tools; capping low keeps a single case cheap.
+_MAX_TOOL_ROUNDS = 6
+
+# Lazy, cached client -- built on first real use so --replay/doctor/CI need no
+# key. Never a hardcoded key; resolves OPENROUTER_API_KEY from the environment
+# (loaded from .env by the CLI on startup).
+_client: OpenAI | None = None
 
 
-def _get_client() -> genai.Client:
+def _get_client() -> OpenAI:
     global _client
     if _client is None:
-        _client = genai.Client()
+        import os
+
+        # Provider resolution, in priority order. Both are OpenAI-compatible;
+        # only the base_url + key differ. Conduit first (its own endpoint),
+        # then OpenRouter. BASE_URL in policy.py is the default fallback.
+        conduit_key = os.environ.get("CONDUIT_API_KEY")
+        if conduit_key:
+            base = os.environ.get("CONDUIT_BASE_URL") or BASE_URL
+            _client = OpenAI(base_url=base, api_key=conduit_key)
+            return _client
+
+        key = os.environ.get("OPENROUTER_API_KEY")
+        if not key:
+            raise ReqGuardInternalError(
+                "no provider key set (CONDUIT_API_KEY or OPENROUTER_API_KEY) -- "
+                "a live run needs one (--replay needs none)."
+            )
+        _client = OpenAI(base_url=BASE_URL, api_key=key)
     return _client
 
-# Gemini's thinking ladder is 4 rungs; ours (policy.py) is 5. xhigh/max both
-# collapse to HIGH -- there is no 5th tier to map them to on this SDK.
-_THINKING_LEVEL: dict[str, str] = {
-    "low": "LOW",
-    "medium": "MEDIUM",
-    "high": "HIGH",
-    "xhigh": "HIGH",
-    "max": "HIGH",
+
+# OpenAI reasoning_effort has low|medium|high; our ladder (policy.py) has five.
+# xhigh/max collapse to high -- there is no higher rung on this API.
+_REASONING_EFFORT: dict[str, str] = {
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "xhigh": "high",
+    "max": "high",
 }
 
 
@@ -124,41 +121,47 @@ class _NullTrace:
         return None
 
 
-def _config(
-    stage: str,
-    system: str,
-    *,
-    response_schema: Any | None = None,
-    tools: list[Any] | None = None,
-) -> dict[str, Any]:
-    """Build the config dict common to every ReqGuard model call.
+# ── list[...] response_format shim ──────────────────────────────────────────
+# OpenAI structured output requires a single BaseModel as response_format; a
+# bare top-level `list[Requirement]` (what requirement_analyzer passes) is not
+# valid. Wrap it in a one-field envelope and unwrap transparently.
 
-    Pure and side-effect free so the smoke check can assert the invariants
-    without a network call.
-    """
-    cfg: dict[str, Any] = {
-        "system_instruction": system,
-        "thinking_config": {"thinking_level": _THINKING_LEVEL[policy.effort_for(stage)]},
-        "max_output_tokens": MAX_TOKENS,
+def _is_list_type(tp: Any) -> bool:
+    return get_origin(tp) in (list, list.__class__) or get_origin(tp) is list
+
+
+def _envelope_for(list_type: Any) -> tuple[type[BaseModel], Any]:
+    (item_type,) = get_args(list_type)
+    envelope = create_model(
+        f"_ItemsEnvelope_{getattr(item_type, '__name__', 'X')}",
+        items=(list_type, ...),
+    )
+    return envelope, item_type
+
+
+def _messages(system: str, user: str) -> list[dict[str, Any]]:
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+
+
+def _common_kwargs(stage: str) -> dict[str, Any]:
+    return {
+        "model": MODEL,
+        "max_tokens": MAX_TOKENS,
+        "reasoning_effort": _REASONING_EFFORT[policy.effort_for(stage)],
     }
-    if response_schema is not None:
-        cfg["response_mime_type"] = "application/json"
-        cfg["response_schema"] = response_schema
-    if tools is not None:
-        cfg["tools"] = tools
-    return cfg
 
 
 def _assert_finished(response: Any) -> None:
-    """No partial answers accepted. `finish_reason` anything but STOP --
-    MAX_TOKENS, SAFETY, RECITATION, a dangling tool call the SDK gave up
-    on -- is a loud failure, not a silently truncated result."""
-    candidates = getattr(response, "candidates", None) or []
-    for c in candidates:
-        reason = getattr(c, "finish_reason", None)
-        if reason is not None and reason != types.FinishReason.STOP:
+    """No partial answers. Any finish_reason but 'stop' or 'tool_calls'
+    (length/content_filter/etc.) is a loud failure, never a silent truncation."""
+    for choice in getattr(response, "choices", None) or []:
+        reason = getattr(choice, "finish_reason", None)
+        if reason not in (None, "stop", "tool_calls"):
             raise ReqGuardInternalError(
-                f"unexpected finish_reason={reason!r} -- expected STOP"
+                f"unexpected finish_reason={reason!r} -- expected stop"
             )
 
 
@@ -171,20 +174,28 @@ def structured(
 ) -> _T:
     """A single structured call. Stages 1 (analyze) and 3 (plan) use this.
 
-    Returns the validated model instance from `response.parsed`. The full
-    response (for its `usage_metadata`) is handed to `trace`.
+    Returns the validated model instance. A bare `list[...]` output_format is
+    wrapped/unwrapped transparently (OpenAI needs a single BaseModel).
     """
     trace = trace or _NullTrace()
-    response = _get_client().models.generate_content(
-        model=MODEL,
-        contents=user,
-        config=_config(stage, system, response_schema=output_format),
+
+    wrap = _is_list_type(output_format)
+    response_format: Any = output_format
+    if wrap:
+        response_format, _ = _envelope_for(output_format)
+
+    response = _get_client().beta.chat.completions.parse(
+        messages=_messages(system, user),
+        response_format=response_format,
+        **_common_kwargs(stage),
     )
     trace.api_call(stage, response)
     _assert_finished(response)
-    if response.parsed is None:
+
+    parsed = response.choices[0].message.parsed
+    if parsed is None:
         raise ReqGuardInternalError(f"{stage}: model returned no parsed structured output")
-    return response.parsed
+    return parsed.items if wrap else parsed  # type: ignore[return-value,attr-defined]
 
 
 def run_with_tools(
@@ -198,66 +209,126 @@ def run_with_tools(
     """A tool-using stage ending in a validated structured output. Stages 2
     (investigate) and 5 (repair) use this.
 
-    Gemini's automatic function calling handles the whole loop inside this one
-    `generate_content` call: it calls each declared Python callable locally as
-    the model requests, feeds results back, and keeps going until the model
-    produces a final answer matching `output_format` -- verified this session,
-    not assumed. `tools` must already be in the fixed, sorted order
-    `tools/registry.py` returns (kept for parity with the old cache-ordering
-    discipline, though Gemini's implicit caching doesn't depend on it the way
-    Anthropic's explicit `cache_control` prefix did).
+    OpenAI does not auto-execute tools, so this drives the loop: send the tool
+    schemas, run any requested functions locally, feed results back, repeat
+    until the model stops requesting tools, then a final structured parse.
+    `tools` is the list from `tools/registry.py`: OpenAI function schema dicts,
+    each carrying a bound `_impl` callable under a side table (see registry).
     """
     trace = trace or _NullTrace()
-    response = _get_client().models.generate_content(
-        model=MODEL,
-        contents=user,
-        config=_config(stage, system, response_schema=output_format, tools=tools),
-    )
-    trace.api_call(stage, response)
-    _assert_finished(response)
-    if response.parsed is None:
-        raise ReqGuardInternalError(
-            f"{stage}: tool-calling run produced no structured output "
-            f"(finish_reason={getattr(response.candidates[0], 'finish_reason', None)!r})"
+    client = _get_client()
+
+    schemas = [t["schema"] for t in tools]
+    impls = {t["schema"]["function"]["name"]: t["impl"] for t in tools}
+
+    messages = _messages(system, user)
+
+    for _round in range(_MAX_TOOL_ROUNDS):
+        response = client.chat.completions.create(
+            messages=messages,
+            tools=schemas,
+            **_common_kwargs(stage),
         )
-    return response.parsed
+        trace.api_call(stage, response)
+        _assert_finished(response)
+
+        msg = response.choices[0].message
+        tool_calls = getattr(msg, "tool_calls", None)
+        if not tool_calls:
+            break
+
+        messages.append(
+            {
+                "role": "assistant",
+                "content": msg.content or "",
+                "tool_calls": [tc.model_dump() for tc in tool_calls],
+            }
+        )
+        for tc in tool_calls:
+            import json
+
+            name = tc.function.name
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            impl = impls.get(name)
+            result = impl(**args) if impl else f"error: unknown tool {name}"
+            messages.append(
+                {"role": "tool", "tool_call_id": tc.id, "content": str(result)}
+            )
+    # If the loop exhausted its rounds without the model volunteering a final
+    # answer, we do NOT error -- we force the structured answer below from the
+    # context gathered so far. A model that likes to keep calling tools (common
+    # on smaller/free models) must not fail the whole run; the final parse call
+    # omits `tools` so the model can only answer, not call more.
+
+    # Final structured parse over the accumulated context, tools withheld so the
+    # model is forced to produce the answer rather than another tool call.
+    wrap = _is_list_type(output_format)
+    response_format: Any = output_format
+    if wrap:
+        response_format, _ = _envelope_for(output_format)
+
+    final = client.beta.chat.completions.parse(
+        messages=messages + [
+            {
+                "role": "user",
+                "content": (
+                    "Stop calling tools. Based on everything gathered above, "
+                    "return the final structured result now."
+                ),
+            }
+        ],
+        response_format=response_format,
+        **_common_kwargs(stage),
+    )
+    trace.api_call(stage, final)
+    _assert_finished(final)
+
+    parsed = final.choices[0].message.parsed
+    if parsed is None:
+        raise ReqGuardInternalError(f"{stage}: tool-calling run produced no structured output")
+    return parsed.items if wrap else parsed  # type: ignore[return-value,attr-defined]
 
 
 # ── smoke check: the B1 gate ─────────────────────────────────────────────────
 
 def _smoke() -> int:
-    """`python -m reqguard.agent.client --smoke`. Asserts the call shape and the
-    policy table without spending a token."""
+    """`python -m reqguard.agent.client --smoke`. Asserts call shape + policy
+    without spending a token or needing a key."""
     policy.validate()
 
     for stage in policy.STAGES:
-        cfg = _config(stage, "SYSTEM PROMPT TEXT", response_schema=None)
+        kw = _common_kwargs(stage)
+        assert kw["model"] == MODEL
+        assert kw["max_tokens"] == MAX_TOKENS
+        assert kw["reasoning_effort"] in ("low", "medium", "high"), kw
+        assert kw["reasoning_effort"] == _REASONING_EFFORT[policy.effort_for(stage)]
 
-        assert cfg["system_instruction"] == "SYSTEM PROMPT TEXT"
-        assert "thinking_config" in cfg
-        level = cfg["thinking_config"]["thinking_level"]
-        assert level in ("LOW", "MEDIUM", "HIGH"), level
-        assert level == _THINKING_LEVEL[policy.effort_for(stage)]
-        assert "response_mime_type" not in cfg, "no schema passed -- must not appear"
-        assert "tools" not in cfg, "no tools passed -- must not appear"
+    msgs = _messages("SYSTEM PROMPT TEXT", "volatile user content")
+    assert msgs[0] == {"role": "system", "content": "SYSTEM PROMPT TEXT"}
+    assert msgs[1] == {"role": "user", "content": "volatile user content"}
 
-    with_schema = _config("analyze", "SYS", response_schema=str)
-    assert with_schema["response_mime_type"] == "application/json"
-    assert with_schema["response_schema"] is str
+    # list[...] detection + envelope wrap/unwrap
+    from reqguard.models import Requirement
 
-    with_tools = _config("investigate", "SYS", response_schema=str, tools=["placeholder"])
-    assert with_tools["tools"] == ["placeholder"]
+    assert _is_list_type(list[Requirement])
+    assert not _is_list_type(Requirement)
+    env, item = _envelope_for(list[Requirement])
+    assert item is Requirement
+    assert "items" in env.model_fields
 
-    # the one call surface exists -- checked on the class, not an instance,
-    # since the smoke check must never require a key (no _get_client() call)
-    assert callable(genai.Client.models.fget), "genai.Client has no .models property"
+    # BASE_URL is the default (OpenRouter) fallback; CONDUIT_BASE_URL can
+    # override at runtime. Just assert it's a plausible v1 endpoint.
+    assert BASE_URL.rstrip("/").endswith("/v1") or "openrouter.ai" in BASE_URL, BASE_URL
 
-    # finish_reason assertion fires on anything but STOP
-    class _Candidate:
-        finish_reason = types.FinishReason.MAX_TOKENS
+    # finish_reason assertion fires on a bad reason
+    class _Choice:
+        finish_reason = "length"
 
     class _Truncated:
-        candidates = [_Candidate()]
+        choices = [_Choice()]
 
     try:
         _assert_finished(_Truncated())
@@ -266,7 +337,7 @@ def _smoke() -> int:
     else:
         raise AssertionError("finish_reason assertion did not fire")
 
-    print("client smoke OK:", MODEL, "| thinking levels", dict(_THINKING_LEVEL))
+    print("client smoke OK:", MODEL, "| effort", dict(_REASONING_EFFORT))
     return 0
 
 

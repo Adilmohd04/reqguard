@@ -21,20 +21,22 @@ Stage = Literal["analyze", "investigate", "plan", "repair", "baseline"]
 Effort = Literal["low", "medium", "high", "xhigh", "max"]
 
 # The one model, used by every stage and by the baseline (section 16.2).
-# Changed 2026-08-30 (COLLAB.md session 6): migrated to Gemini, no Anthropic
-# key available. Pinned to the exact preview string, not a `-latest` alias --
-# an alias moving under us mid-project would silently break reproducibility.
-# `gemini-3.1-pro-preview` (the higher-reasoning tier originally wanted for
-# this workload) returned HTTP 429 with an explicit `limit: 0` free-tier
-# quota on the key in use -- not rate-limited, structurally unavailable
-# without billing enabled. `gemini-3.6-flash` was verified reachable and
-# correct end-to-end (structured output, tool calling, both combined) on
-# this key this session.
-MODEL: str = "gemini-3.6-flash"
+# Changed 2026-08-30 (COLLAB.md): migrated Anthropic -> Gemini -> OpenRouter.
+# The Gemini free-tier key hit 429 RESOURCE_EXHAUSTED (no billing), so the
+# human directed a switch to OpenRouter's free models. OpenRouter is an
+# OpenAI-compatible gateway; BASE_URL points the `openai` SDK at it.
+# This model was VERIFIED by a probe (scratch_probe.py) to support BOTH
+# structured output and tool calling on the free tier -- most free models
+# support neither. `nvidia/nemotron-3-ultra-550b-a55b:free` also passed and is
+# the fallback. Do NOT swap the model without re-probing both capabilities, or
+# stages 2/5 (tools) or 1/3 (structured output) will break. Pinned to the exact
+# id -- no `-latest` alias that could move under us mid-project.
+MODEL: str = "gpt-5"
+BASE_URL: str = "https://openrouter.ai/api/v1"
 
 # Non-streaming parse/tool-runner calls: keep the response under the SDK HTTP
 # timeout. 16k is the manual's figure (section 5.1).
-MAX_TOKENS: int = 16000
+MAX_TOKENS: int = 8000
 
 STAGES: tuple[Stage, ...] = ("analyze", "investigate", "plan", "repair", "baseline")
 
@@ -73,5 +75,5 @@ def validate() -> None:
             "policy: baseline effort must be 'xhigh' -- the control arm gets the "
             "highest setting (manual section 16.2)"
         )
-    if MODEL != "gemini-3.6-flash":
+    if MODEL != "gpt-5":
         raise AssertionError(f"policy: unexpected model {MODEL!r}")

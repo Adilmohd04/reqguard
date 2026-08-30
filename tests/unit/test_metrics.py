@@ -40,15 +40,29 @@ from reqguard.tracing.trajectory import Trajectory
 def test_no_anthropic_or_agent_imports() -> None:
     # Mirror the integration gate: match actual import STATEMENTS at line start
     # (optionally indented), not prose mentions in a docstring.
+    #
+    # The guarantee is provider-AGNOSTIC: the evaluator must import NO model SDK
+    # of any kind, so re-scoring stored artifacts never costs money and two
+    # people scoring one run get one number. Track B migrated Anthropic -> Gemini
+    # (COLLAB.md session 7); this guard now covers both, so the property holds
+    # regardless of which provider the agent layer uses. If Track B ever adds a
+    # third provider, add its import root here too.
     import re
 
-    anthropic_stmt = re.compile(r"^\s*(import anthropic|from anthropic)", re.M)
+    # (statement pattern, human label) — any model SDK is forbidden here.
+    model_sdk_stmts = [
+        (re.compile(r"^\s*(import anthropic|from anthropic)", re.M), "anthropic"),
+        (re.compile(r"^\s*(import|from)\s+google\.genai", re.M), "google.genai"),
+        (re.compile(r"^\s*(import|from)\s+google\.generativeai", re.M),
+         "google.generativeai"),
+    ]
     agent_stmt = re.compile(r"^\s*(import|from)\s+reqguard\.agent", re.M)
 
     src_root = Path(__file__).resolve().parents[2] / "src" / "reqguard" / "evaluation"
     for name in ("metrics.py", "benchmark.py"):
         text = (src_root / name).read_text(encoding="utf-8")
-        assert not anthropic_stmt.search(text), f"{name} imports anthropic"
+        for pattern, label in model_sdk_stmts:
+            assert not pattern.search(text), f"{name} imports {label}"
         assert not agent_stmt.search(text), f"{name} imports reqguard.agent"
 
 

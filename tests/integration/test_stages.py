@@ -36,64 +36,116 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CASE01 = REPO_ROOT / "benchmarks" / "case01-cancelled-order-shipping"
 
 live = pytest.mark.skipif(
-    not os.environ.get("GEMINI_API_KEY") and not os.environ.get("GOOGLE_API_KEY"),
-    reason="live test — needs GEMINI_API_KEY or GOOGLE_API_KEY",
+    not os.environ.get("OPENROUTER_API_KEY"),
+    reason="live test — needs OPENROUTER_API_KEY",
 )
 
 
-# ── fake client ─────────────────────────────────────────────────────────────
+# ── fake client (OpenAI/OpenRouter surface) ─────────────────────────────────
+# Migration note (COLLAB.md): Anthropic -> Gemini -> OpenRouter. The client now
+# uses the `openai` SDK against OpenRouter. `structured()` calls
+# `beta.chat.completions.parse` (parsed on choices[0].message.parsed);
+# `run_with_tools()` calls `chat.completions.create` (tool_calls loop) then a
+# final `.parse`. The fake below mimics both surfaces and records every call's
+# kwargs on `.calls`; `.tool_calls` is the subset that passed `tools=`.
 
-class _FakeUsageMetadata:
-    prompt_token_count = 1000
-    candidates_token_count = 200
-    cached_content_token_count = None
-    thoughts_token_count = 50
-    total_token_count = 1250
+class _FakeUsage:
+    prompt_tokens = 1000
+    completion_tokens = 200
+    total_tokens = 1250
+
+    def model_dump(self) -> dict:
+        return {
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+        }
 
 
-class _FakeCandidate:
-    def __init__(self, finish_reason: str = "STOP") -> None:
-        from google.genai import types
+class _FakeMessage:
+    def __init__(self, parsed: object = None, content: str = "", tool_calls=None) -> None:
+        self.parsed = parsed
+        self.content = content
+        self.tool_calls = tool_calls
 
-        self.finish_reason = getattr(types.FinishReason, finish_reason)
+
+class _FakeChoice:
+    def __init__(self, message: _FakeMessage, finish_reason: str = "stop") -> None:
+        self.message = message
+        self.finish_reason = finish_reason
 
 
 class _FakeResponse:
-    def __init__(self, parsed_output: object, finish_reason: str = "STOP") -> None:
-        self.parsed = parsed_output
-        self.candidates = [_FakeCandidate(finish_reason)]
-        self.usage_metadata = _FakeUsageMetadata()
+    def __init__(self, message: _FakeMessage, finish_reason: str = "stop") -> None:
+        self.choices = [_FakeChoice(message, finish_reason)]
+        self.usage = _FakeUsage()
 
 
-class _FakeModels:
+class _FakeParse:
+    """Fakes `beta.chat.completions.parse`. Returns the parsed_output the test
+    configured. If the client wrapped a list[...] in an envelope, honor that by
+    returning an object exposing `.items`."""
+
     def __init__(self, parsed_output: object, calls: list[dict]) -> None:
-        self._parsed_output = parsed_output
+        self._parsed = parsed_output
         self._calls = calls
 
-    def generate_content(self, **kwargs):  # noqa: ANN003
+    def parse(self, **kwargs):  # noqa: ANN003
         self._calls.append(kwargs)
-        return _FakeResponse(self._parsed_output)
+        rf = kwargs.get("response_format")
+        parsed = self._parsed
+        # list[...] envelope: client passes a generated model with an `items`
+        # field and unwraps `.items`. Mimic by wrapping the list.
+        if isinstance(parsed, list) and rf is not None and "items" in getattr(rf, "model_fields", {}):
+            class _Env:
+                items = parsed
+            parsed = _Env()
+        return _FakeResponse(_FakeMessage(parsed=parsed))
+
+
+class _FakeCompletions:
+    """Fakes both `beta.chat.completions.parse` and `chat.completions.create`.
+    `create` (tool path) returns a plain no-tool-call message so the loop
+    finishes in one round; the final structured answer comes from `parse`."""
+
+    def __init__(self, parsed_output: object, calls: list[dict]) -> None:
+        self._parse = _FakeParse(parsed_output, calls)
+        self._calls = calls
+
+    def create(self, **kwargs):  # noqa: ANN003
+        self._calls.append(kwargs)
+        # No tool_calls -> run_with_tools breaks out of the loop immediately,
+        # then issues the final .parse for the structured result.
+        return _FakeResponse(_FakeMessage(content="done", tool_calls=None))
+
+    def parse(self, **kwargs):  # noqa: ANN003
+        return self._parse.parse(**kwargs)
+
+
+class _FakeBeta:
+    def __init__(self, completions: _FakeCompletions) -> None:
+        self.chat = type("_Chat", (), {"completions": completions})()
 
 
 class _FakeClient:
     def __init__(self, parsed_output: object) -> None:
         self.calls: list[dict] = []
-        self.models = _FakeModels(parsed_output, self.calls)
+        completions = _FakeCompletions(parsed_output, self.calls)
+        self.beta = _FakeBeta(completions)
+        self.chat = type("_Chat", (), {"completions": completions})()
 
     @property
     def tool_calls(self) -> list[dict]:
-        """Back-compat alias: calls whose config declared tools — kept so the
-        stage-specific tests below don't need every reference rewritten."""
-        return [c for c in self.calls if c.get("config", {}).get("tools")]
+        """The subset of calls that declared tools (the create() path)."""
+        return [c for c in self.calls if c.get("tools")]
 
 
 @pytest.fixture
 def fake_client(monkeypatch):
-    """Return a factory: call it with the parsed_output the fake should yield,
-    and it patches `reqguard.agent.client._client` directly — `_get_client()`
-    sees the module global already set and never calls the real
-    `genai.Client()`, so no key is needed. Yields the fake so the test can
-    inspect `.calls` (every call) / `.tool_calls` (the subset with tools)."""
+    """Factory: call with the parsed_output the fake should yield; patches
+    `reqguard.agent.client._client` directly so `_get_client()` returns the fake
+    and never constructs a real OpenAI client (no key needed). Yields the fake
+    so the test can inspect `.calls` / `.tool_calls`."""
 
     def _install(parsed_output: object) -> _FakeClient:
         fc = _FakeClient(parsed_output)
@@ -146,12 +198,12 @@ def test_analyzer_returns_frozen_requirements_and_uses_the_right_call(fake_clien
     assert len(fc.calls) == 1
     k = fc.calls[0]
     assert k["model"] == client_mod.MODEL
-    assert k["config"]["thinking_config"]["thinking_level"] == "MEDIUM"  # analyze policy
+    assert k["reasoning_effort"] == "medium"  # analyze policy
     # the analyze prompt, verbatim, nothing interpolated
     from reqguard.agent import prompts
-    assert k["config"]["system_instruction"] == prompts.load("analyze")
+    assert k["messages"][0] == {"role": "system", "content": prompts.load("analyze")}
     # the document rides in the user turn, with line numbers for source_location
-    user = k["contents"]
+    user = k["messages"][1]["content"]
     assert "requirements.md:Lnn" in user
     assert "L1: # Order Requirements" in user
     assert "cancelled order" in user
@@ -165,7 +217,7 @@ def test_analyzer_reads_the_named_file(fake_client, tmp_path):
     fc = fake_client([])
     requirement_analyzer.run(doc)
 
-    user = fc.calls[0]["contents"]
+    user = fc.calls[0]["messages"][1]["content"]
     assert "specs.md:Lnn" in user
     assert "widget must not overheat" in user
 
@@ -258,11 +310,11 @@ def test_planner_uses_xhigh_structured_call_with_sites_and_tests(fake_client):
     assert len(fc.calls) == 1 and not fc.tool_calls
     k = fc.calls[0]
     assert k["model"] == client_mod.MODEL
-    assert k["config"]["thinking_config"]["thinking_level"] == "HIGH"  # xhigh -> HIGH (plan policy)
-    assert k["config"]["response_schema"] is MutationSpec
-    assert k["config"]["system_instruction"] == prompts.load("plan")
+    assert k["reasoning_effort"] == "high"  # xhigh -> high (plan policy)
+    assert k["response_format"] is MutationSpec
+    assert k["messages"][0]["content"] == prompts.load("plan")
 
-    user = k["contents"]
+    user = k["messages"][1]["content"]
     assert "REQ-01" in user
     assert "src/orders/service.py" in user and "ship_order" in user   # the site
     assert "test_open_order_ships" in user                            # existing tests inlined
@@ -275,7 +327,7 @@ def test_planner_reports_empty_sites_without_inventing_one(fake_client):
     fc = fake_client(_SPEC_01)
     mutation_planner.run(CASE01, _REQ_01, empty)
 
-    user = fc.calls[0]["contents"]
+    user = fc.calls[0]["messages"][1]["content"]
     assert "none" in user.lower()
 
 
@@ -307,41 +359,45 @@ def test_investigator_binds_the_seven_tools_in_sorted_order(fake_client):
     out = repository_investigator.run(CASE01, _REQ_01)
 
     assert isinstance(out, Investigation)
-    assert len(fc.calls) == 1 and len(fc.tool_calls) == 1
-    k = fc.calls[0]
-    assert k["config"]["thinking_config"]["thinking_level"] == "HIGH"  # investigate policy
-    assert k["config"]["response_schema"] is Investigation
-    assert k["config"]["system_instruction"] == prompts.load("investigate")
+    assert len(fc.calls) >= 1 and len(fc.tool_calls) == 1
+    # the tool-calling create() carries the tools + effort; find it
+    k = fc.tool_calls[0]
+    assert k["reasoning_effort"] == "high"  # investigate policy
+    assert k["messages"][0]["content"] == prompts.load("investigate")
 
-    names = registry.tool_names(k["config"]["tools"])
+    names = registry.tool_names(k["tools"])
     assert names == list(registry.TOOL_NAMES)                # fixed, sorted order
     assert names == sorted(names)
 
-    user = k["contents"]
+    user = k["messages"][1]["content"]
     assert "REQ-01" in user and _REQ_01.behavior.prohibited_action in user
 
 
 @needs_a2
 def test_investigator_raises_on_non_stop_finish_reason(monkeypatch):
-    """No partial answers accepted. A `finish_reason` other than STOP --
-    MAX_TOKENS, SAFETY, a tool call the SDK gave up on -- is a loud failure,
-    not a silently truncated result (B3 acceptance / manual section 10.3).
-    This replaces the old Anthropic `pause_turn` test: Gemini's automatic
-    function calling has no equivalent concept -- `_assert_finished`'s
-    finish_reason check is what plays that role now."""
+    """No partial answers accepted. A `finish_reason` other than stop/tool_calls
+    -- length, content_filter, a tool call the model gave up on -- is a loud
+    failure, not a silently truncated result (B3 acceptance / manual section
+    10.3). Under OpenAI/OpenRouter this is the `finish_reason` check in
+    `_assert_finished`; it replaces the Anthropic `pause_turn` test."""
     from reqguard.agent import repository_investigator
     from reqguard.agent import client as client_mod
     from reqguard.errors import ReqGuardInternalError
 
-    truncated = _FakeResponse(None, finish_reason="MAX_TOKENS")
+    truncated = _FakeResponse(_FakeMessage(content="", tool_calls=None), finish_reason="length")
 
-    class _Models:
+    class _Completions:
         @staticmethod
-        def generate_content(**_kwargs):
+        def create(**_kwargs):
+            return truncated
+
+        @staticmethod
+        def parse(**_kwargs):
             return truncated
 
     class _Client:
-        models = _Models()
+        chat = type("_Chat", (), {"completions": _Completions()})()
+        beta = type("_Beta", (), {"chat": type("_C", (), {"completions": _Completions()})()})()
 
     monkeypatch.setattr(client_mod, "_client", _Client())
     with pytest.raises(ReqGuardInternalError):
@@ -359,9 +415,12 @@ def test_investigator_appends_reqguard_md_to_the_user_turn_only(fake_client, tmp
     fc = fake_client(_INV_01)
     repository_investigator.run(tmp_path, _REQ_01)
 
-    k = fc.calls[0]
-    assert "append-only" in k["contents"]
-    assert "append-only" not in k["config"]["system_instruction"]  # never the cached prefix
+    # REQGUARD.md rides in the user turn of the tool-calling call, never the
+    # cached system prompt.
+    k = fc.tool_calls[0]
+    user = k["messages"][1]["content"]
+    assert "append-only" in user
+    assert "append-only" not in k["messages"][0]["content"]  # never the system prompt
 
 
 # ── Stage 5 — repairer (Tool Runner + Track A tools) ───────────────────────
@@ -380,11 +439,11 @@ def test_repairer_returns_a_proposal_and_feeds_back_prior_failures(fake_client):
     )
 
     assert isinstance(out, RepairProposal)
-    k = fc.calls[0]
-    assert k["config"]["thinking_config"]["thinking_level"] == "HIGH"  # repair policy
-    assert k["config"]["system_instruction"] == prompts.load("repair")
+    k = fc.tool_calls[0]
+    assert k["reasoning_effort"] == "high"  # repair policy
+    assert k["messages"][0]["content"] == prompts.load("repair")
 
-    user = k["contents"]
+    user = k["messages"][1]["content"]
     assert "did not kill mutant" in user                     # the verifier's reason, fed back
     assert _SPEC_01.violation_scenario in user
 
@@ -408,11 +467,11 @@ def test_baseline_uses_the_same_model_and_highest_effort_and_same_tools(fake_cli
     assert isinstance(out, baseline.BaselineFinding)
     assert out.status in ("PROTECTED", "INSUFFICIENTLY_PROTECTED")
 
-    k = fc.calls[0]
+    k = fc.tool_calls[0]
     assert k["model"] == client_mod.MODEL                    # SAME model as ReqGuard
-    assert k["config"]["thinking_config"]["thinking_level"] == "HIGH"  # xhigh -> HIGH, deliberately highest
-    assert k["config"]["system_instruction"] == prompts.load("baseline")
-    assert registry.tool_names(k["config"]["tools"]) == list(registry.TOOL_NAMES)  # same tool surface
+    assert k["reasoning_effort"] == "high"  # xhigh -> high, deliberately highest
+    assert k["messages"][0]["content"] == prompts.load("baseline")
+    assert registry.tool_names(k["tools"]) == list(registry.TOOL_NAMES)  # same tool surface
 
 
 def test_baseline_prompt_stays_short():

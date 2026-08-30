@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Requirement-derived mutation testing — does your suite actually protect what the spec says?"
 requires-python = ">=3.12"
 dependencies = [
-    "google-genai>=2.3.0",
+    "openai>=1.50",
     "python-dotenv>=1.0",
     "pydantic>=2.7",
     "typer>=0.12",
