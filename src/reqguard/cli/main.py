@@ -66,24 +66,22 @@ def _err(msg: str) -> None:
 
 @contextmanager
 def _live_call_errors():
-    """Translate the SDK's credential-resolution failure into a clean error.
+    """Translate a bare credential-resolution `TypeError` into a clean error.
 
-    A zero-arg `anthropic.Anthropic()` resolves credentials through a chain
-    (env vars, an `ant auth login` profile, WIF) -- see
-    docs/03-implementation-manual.md section 1. When NONE of those resolve,
-    the SDK raises a bare `TypeError` deep inside request header validation,
-    not one of its own typed exceptions, and not a ReqGuardError -- so it was
-    falling straight through every `except ReqGuardError` in this file as a
-    full framework traceback. That's the single most common way a new user
-    hits this CLI (forgetting to set a key, or not realizing --replay needs
-    none at all).
-
-    Deliberately does NOT pre-check `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`
-    itself and bail early -- that would produce a FALSE "no credentials"
-    error for the legitimate case of an `ant auth login` profile with no env
-    vars set at all, which the SDK resolves fine on its own. Only this exact,
-    message-matched failure is translated; any other TypeError (a genuine
-    bug) is re-raised unchanged rather than silently relabeled.
+    **History (COLLAB.md):** written when the client was Anthropic-based —
+    `anthropic.Anthropic()` with no credential resolvable raised a bare
+    `TypeError`, not a `ReqGuardError`, so it fell through every
+    `except ReqGuardError` below as a raw framework traceback. Kept after the
+    Gemini/OpenRouter/Conduit migrations as defense in depth, though it's
+    currently unreachable: the live client (`agent/client.py::_get_client`)
+    now raises a typed `ReqGuardInternalError` directly for a missing key —
+    already a `ReqGuardError`, already caught cleanly by this file's general
+    handler with the right message. Verified directly: with every provider
+    key unset, the real output is
+    `✗ no provider key set (CONDUIT_API_KEY or OPENROUTER_API_KEY) -- ...`,
+    not what this context manager prints below — no bare TypeError to catch.
+    Left in place in case a future provider swap reintroduces the same
+    untyped-exception failure mode; if it never fires again, it's harmless.
     """
     try:
         yield
@@ -91,9 +89,9 @@ def _live_call_errors():
         if "Could not resolve authentication method" not in str(exc):
             raise
         _err(
-            "✗ no Anthropic credentials found. Set ANTHROPIC_API_KEY or "
-            "ANTHROPIC_AUTH_TOKEN, or run `ant auth login`.\n"
-            "  (--replay needs neither -- see docs/03-implementation-manual.md section 1.)"
+            "✗ no provider credentials found. Set CONDUIT_API_KEY (+ "
+            "CONDUIT_BASE_URL) or OPENROUTER_API_KEY.\n"
+            "  (--replay needs none of these.)"
         )
         raise typer.Exit(1)
 
