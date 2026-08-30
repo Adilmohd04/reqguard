@@ -139,20 +139,29 @@ def analyze(
     traj = Trajectory(report_dir / "trajectory.jsonl")
 
     if dry_run:
-        with _live_call_errors():
-            _echo("Analyzing requirements...")
-            reqs = requirement_analyzer.run(repo / cfg.requirements_path, orchestrator.TrajectoryTrace(traj))
-            if requirement:
-                reqs = [r for r in reqs if r.id == requirement]
-            _echo(f"  ✓  {len(reqs)} requirement(s)")
-            with sandbox(repo, cfg) as sb:
-                for r in reqs:
-                    inv = repository_investigator.run(sb, r)
-                    if not inv.sites:
-                        _echo(f"  {r.id}: no enforcement site — would be INCONCLUSIVE")
-                        continue
-                    spec = mutation_planner.run(sb, r, inv)
-                    _echo(f"  {r.id}: planned {spec.mutation_type.value} on {spec.target_file}::{spec.target_symbol}")
+        try:
+            with _live_call_errors():
+                _echo("Analyzing requirements...")
+                reqs = requirement_analyzer.run(repo / cfg.requirements_path, orchestrator.TrajectoryTrace(traj))
+                if requirement:
+                    reqs = [r for r in reqs if r.id == requirement]
+                _echo(f"  ✓  {len(reqs)} requirement(s)")
+                with sandbox(repo, cfg) as sb:
+                    for r in reqs:
+                        inv = repository_investigator.run(sb, r)
+                        if not inv.sites:
+                            _echo(f"  {r.id}: no enforcement site — would be INCONCLUSIVE")
+                            continue
+                        spec = mutation_planner.run(sb, r, inv)
+                        _echo(f"  {r.id}: planned {spec.mutation_type.value} on {spec.target_file}::{spec.target_symbol}")
+        except ReqGuardError as exc:
+            # Found live, not by inspection: --dry-run had no ReqGuardError
+            # handler at all, unlike the full-run path right below it -- a
+            # provider error (a transient 503, a missing key, anything)
+            # during --dry-run crashed with a raw traceback instead of the
+            # same clean "✗ ..." message the full run already gives.
+            _err(f"✗ {exc}")
+            raise typer.Exit(1)
         raise typer.Exit(0)
 
     try:
@@ -234,8 +243,18 @@ def benchmark(
     from reqguard.cli._runner import run_benchmark_arms
 
     only = [c.strip() for c in cases.split(",")] if cases else None
-    with _live_call_errors():
-        results_dir = run_benchmark_arms(benchmarks_dir, arm, only_cases=only, replay_dir=replay)
+    try:
+        with _live_call_errors():
+            results_dir = run_benchmark_arms(benchmarks_dir, arm, only_cases=only, replay_dir=replay)
+    except ReqGuardError as exc:
+        # Found live: benchmark drives every case in the corpus through a
+        # live provider call and had no ReqGuardError handler at all -- one
+        # transient error (a 503, a rate limit) partway through a multi-case
+        # run crashed the whole batch with a raw traceback instead of the
+        # same clean "✗ ..." message every other failing command already
+        # gives.
+        _err(f"✗ {exc}")
+        raise typer.Exit(1)
     _echo(f"✓ artifacts written to {results_dir}")
     _echo(f"  now run: reqguard evaluate --results {results_dir}")
 
@@ -284,8 +303,21 @@ def doctor(
     """The go/no-go gate: six kill criteria, must be green on case01 (section 20)."""
     from reqguard.cli._runner import run_doctor
 
-    with _live_call_errors():
-        ok = run_doctor(case, replay_dir=replay)
+    try:
+        with _live_call_errors():
+            ok = run_doctor(case, replay_dir=replay)
+    except ReqGuardError as exc:
+        _err(f"✗ {exc}")
+        raise typer.Exit(1)
+    except FileNotFoundError as exc:
+        # Found live: a bad --case or --replay path (a typo, the single most
+        # likely real mistake for doctor's actual audience -- a new user
+        # running the go/no-go gate for the first time) raised a bare
+        # FileNotFoundError with no handler at all, anywhere in this
+        # function -- a full raw traceback for what should be the friendliest
+        # command in the CLI.
+        _err(f"✗ {exc}")
+        raise typer.Exit(1)
     raise typer.Exit(0 if ok else 1)
 
 
