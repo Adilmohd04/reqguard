@@ -63,11 +63,15 @@ reqguard analyze benchmarks/case13-partial-fulfillment --replay benchmarks/repla
 — point at the `investigate` → `plan` → `survived` → `repair` → `verified`
 arc, all for the one requirement, all closed.
 
-*(Optional, if time allows and you want to show a real live run instead of
-replay: play `trajectories/live-case13-gpt5-conduit.md` on screen instead —
-it's a real paid gpt-5 run, includes the agent getting it wrong twice and
-self-correcting. More honest, slightly riskier to narrate live — replay is
-the safer default for a recording.)*
+*(Optional, and now genuinely strong: `trajectories/live-case13-gpt5-conduit.md`
+is a real, live, paid `gpt-5` run on this exact case — investigate → a real
+`boundary_shift` mutation → `survived=True` → repair verified both ways, 8
+API calls, no replay. If you want to show a real model doing this instead of
+the offline replay, this is a clean, complete, ready-to-narrate success —
+not just an honest partial attempt. Either artifact supports the same claim;
+replay is zero-risk to narrate live, the real trajectory is more impressive
+if you'd rather read from a prepared file than run a live call during
+recording.)*
 
 ## 3:20–4:05 — The final comparison
 

@@ -17,16 +17,20 @@ underlying source).
   reqguard trajectory benchmarks/case01-cancelled-order-shipping/reqguard-report/trajectory.jsonl --format md
   ```
 - **`live-case13-gpt5-conduit.md`** — a **real, live, paid** run (`gpt-5` via
-  Conduit) on the killer case (case13-partial-fulfillment). Not staged: the
-  agent's investigate stage gets it wrong twice ("no code found"), retries
-  after a cache-miss, then correctly identifies the real enforcement point
-  (`fulfillment_status`'s `shipped >= ordered` guard), applies a real
-  mutation, and gets a real `survived=True` on both requirements — a live gap
-  actually detected. The run stops before a repair verdict (see
-  `COLLAB.md`'s session 7 entry for the exact bug this exposed: a Windows
-  path-resolution false-positive in the sandbox safety check, not a flaw in
-  the agent's reasoning). Included precisely because it's honest, not
-  because it's a clean success — the failure mode is real and instructive.
+  Conduit) on the killer case (case13-partial-fulfillment): the agent
+  investigates, correctly identifies the real enforcement point
+  (`fulfillment_status`), applies a real `boundary_shift` mutation, gets a
+  real `survived=True`, then writes a repair test and gets it **verified
+  both ways** (`passes_on_original=True`, `kills_mutant=True`) — a complete
+  live gap-detection-and-repair, 8 API calls, no replay involved. This is the
+  second live attempt on this case; the first one (superseded, history in
+  `COLLAB.md` sessions 7 and 10) crashed mid-repair on a real bug — an
+  uncaught `PathEscape` from a malformed tool-call path that killed the whole
+  attempt instead of letting the model see the error and retry. Fixed in
+  `agent/client.py`'s tool-dispatch loop (any tool-execution exception now
+  becomes a normal, recoverable tool result instead of a fatal crash) and
+  re-verified live immediately after — this file is that second, successful
+  run.
 
 ## 2. The coding agents used to build ReqGuard
 
