@@ -965,4 +965,51 @@ the Telegram gate is, and that one's on the human. Once that's cleared,
 next live attempt should get far enough to actually hit (or clear)
 PathEscape for real.
 
+### 2026-08-30 · terminal · session 11 — the milestone: first complete, verified live run
+
+Human joined the two Telegram channels Conduit required. Re-ran live
+immediately: **the Telegram gate cleared, but hit the PathEscape bug from
+session 10/Kiro-session-7 for real** — both case13 requirements went
+INCONCLUSIVE, one of them (`REQ-13a`) with `inconclusive_reason:
+"unexpected error: PathEscape(...)"`, confirming Kiro's original finding
+byte-for-byte.
+
+**Traced the actual mechanism** (not just patched blind): `orig_sb` is the
+same sandbox object throughout investigate/plan/repair for a given
+requirement — ruled out a stale/mismatched sandbox root. The crash was
+inside `test_repairer.run()`'s own tool-use loop: some read-only tool call
+the model made resolved outside `orig_sb` and raised `PathEscape`
+*uncaught*, propagating through `test_repairer.run()` →
+`orchestrator._run_one()` → the outer `except Exception` in `analyze()`,
+discarding a requirement that had already reached a real `survived=True`.
+Didn't pin the exact malformed argument the model passed (would need
+step-by-step tool-call logging to nail precisely) — didn't need to, because
+the actual defect is architectural regardless of the exact string: these are
+read-only tools (section 10.1), and a bad path from the model is the model's
+own mistake to correct, not grounds to kill the whole attempt. Every other
+tool failure mode in this codebase already degrades gracefully
+(`read_file` returns `""` on missing/unreadable/binary); this one didn't.
+
+**Fixed in `client.py`'s tool-dispatch loop** (mine, no boundary crossed —
+`verification/safety.py`/`tools/repository.py` untouched): any exception from
+calling a tool now becomes a normal `"error: ..."` tool result handed back to
+the model, not a fatal crash. Full suite re-verified: 214/4/0.
+
+**Re-ran live again immediately: complete success.** Investigate correctly
+found `fulfillment_status`, planned a `boundary_shift` mutation, got
+`survived=True`, wrote a repair, **verified both ways**
+(`passes_on_original=True`, `kills_mutant=True`) — 8 API calls, no crash, no
+replay. First time the full arc has closed on a real live model call.
+Replaced the crashed trajectory in `trajectories/` with this one; updated its
+README and `docs/VIDEO_SCRIPT.md` to match.
+
+**Status vs. the open items:** the live-run story is no longer "offline
+proves it, live is unverified" — it's proven live too, on the killer case
+specifically. Numbers Rule still applies: this is one requirement, one run,
+not a scored corpus-wide live result — if there's time before the deadline
+for a small scoped multi-case live run (the 6 cases picked earlier:
+case02/05/07/12/13/18), that would be the next real evidence upgrade, but
+what exists now is already legitimate, honest, verified live proof, not just
+an offline claim.
+
 ### <next entry>
