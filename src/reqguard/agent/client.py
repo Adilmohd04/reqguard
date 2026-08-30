@@ -278,7 +278,24 @@ def run_with_tools(
             except json.JSONDecodeError:
                 args = {}
             impl = impls.get(name)
-            result = impl(**args) if impl else f"error: unknown tool {name}"
+            if impl is None:
+                result: Any = f"error: unknown tool {name}"
+            else:
+                try:
+                    result = impl(**args)
+                except Exception as exc:  # noqa: BLE001 -- a bad tool call must
+                    # not crash the whole repair/investigate attempt; the model
+                    # can see the error and retry with a corrected argument.
+                    # Reproduced live: PathEscape from a read-only tool (e.g.
+                    # read_file on a path the model malformed) was previously
+                    # UNCAUGHT here, propagating all the way through
+                    # test_repairer.run() -> orchestrator._run_one() -> the
+                    # outer `except Exception` in analyze(), discarding the
+                    # entire attempt as INCONCLUSIVE right after a real
+                    # survived=True finding. These tools are read-only (section
+                    # 10.1) -- a malformed path is the model's mistake to
+                    # correct, not a fatal condition for the run.
+                    result = f"error: {type(exc).__name__}: {exc}"
             messages.append(
                 {"role": "tool", "tool_call_id": tc.id, "content": str(result)}
             )
