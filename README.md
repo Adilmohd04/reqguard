@@ -63,7 +63,7 @@ outcome, not an opinion.
 
 ```bash
 uv venv --python 3.12 && uv pip install -e ".[dev]"
-export ANTHROPIC_API_KEY=...          # or: ant auth login
+export CONDUIT_API_KEY=...            # or: OPENROUTER_API_KEY=...
 
 reqguard analyze .                    # writes ./reqguard-report/
 reqguard analyze . --requirement REQ-07 --dry-run
@@ -114,7 +114,8 @@ reqguard evaluate --results benchmarks/results/<timestamp>
 
 `reqguard doctor --case <case> --replay benchmarks/replay` runs the six kill
 criteria (§20) and is the go/no-go gate; all 18 cases pass it. A live (paid) run
-is the same commands **without `--replay`** and needs `ANTHROPIC_API_KEY`.
+is the same commands **without `--replay`** and needs `CONDUIT_API_KEY` (+
+`CONDUIT_BASE_URL`) or `OPENROUTER_API_KEY`.
 
 Full step-by-step for a clean machine, the Numbers Rule, and the opt-in live
 profile: **[`docs/REPRODUCTION.md`](docs/REPRODUCTION.md)**. The version-by-version
@@ -151,7 +152,7 @@ it refuses unverified repairs, and it refuses to overwrite.
 
 | Path | What |
 |---|---|
-| `src/reqguard/agent/` | the five LLM stages + the single Anthropic call surface |
+| `src/reqguard/agent/` | the five LLM stages + the single model call surface (`client.py`) |
 | `src/reqguard/tools/` | the seven read tools, the mutation engine, the test runner |
 | `src/reqguard/verification/` | path containment + the two-condition verifier |
 | `src/reqguard/evaluation/` | baseline arm, deterministic evaluator, benchmark scoring |
