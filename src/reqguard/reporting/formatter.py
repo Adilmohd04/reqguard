@@ -65,8 +65,13 @@ def render_terminal(verdicts: list[Verdict], report_dir: str = "./reqguard-repor
         f"Potential gaps:        {s.gaps}",
         f"Inconclusive:          {s.inconclusive}",
         "",
-        f"High-risk gaps:        {s.high_risk_gaps}",
-        f"Medium-risk gaps:      {s.medium_risk_gaps}",
+        # "severity", not "risk": severity is the requirement's own labeled
+        # attribute (from analyze); ReqGuard proves the requirement is
+        # unprotected, it does not independently assess real-world risk --
+        # found via an outside review flagging "high-risk" as a stronger
+        # claim than the evidence supports.
+        f"High-severity gaps:    {s.high_risk_gaps}",
+        f"Medium-severity gaps:  {s.medium_risk_gaps}",
     ]
     if s.repaired:
         lines.append(f"Repaired (test written): {s.repaired}")
