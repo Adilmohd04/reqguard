@@ -84,9 +84,8 @@ than one key is set, the client tries them in order (aerolink → Conduit →
 OpenRouter) and fails over on a provider error. Everything offline — the replay
 corpus, `doctor`, CI — runs with **no key and no spend**.
 
-`reqguard.yaml` is optional — every field has a default (see
-`docs/03-implementation-manual.md` §14). Project context goes in an optional
-`REQGUARD.md` at the repo root.
+`reqguard.yaml` is optional — every field has a default. Project context goes
+in an optional `REQGUARD.md` at the repo root.
 
 ## The experiment
 
@@ -167,7 +166,7 @@ baseline calls it protected, but the `80/100 → completed` mutation survives a 
 that only ever tested `0` and `100`. That single contrast is the experiment.
 
 `benchmarks/replay/<case>/` holds the recorded stage outputs that let each case
-replay offline; the schema is documented in `COLLAB.md`.
+replay offline.
 
 ## Safety
 
