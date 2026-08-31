@@ -181,6 +181,46 @@ def test_a_successful_tool_call_dispatches_to_the_matching_impl_with_parsed_args
     assert tool_messages[0]["tool_call_id"] == "call_1"
 
 
+def test_exhausting_max_rounds_still_forces_a_final_answer(monkeypatch):
+    """A model that likes to keep calling tools (documented in run_with_tools
+    as common on smaller/free models) must not fail the whole run once
+    _MAX_TOOL_ROUNDS is hit -- the loop stops issuing new tool-calling
+    rounds and forces a final structured answer from whatever was gathered.
+    This is a real, deliberate design choice (client.py's own comment) that
+    had never actually been exercised by a test."""
+
+    def read_file(**_kwargs) -> str:
+        return "some content"
+
+    tools = [
+        {
+            "schema": {"type": "function", "function": {"name": "read_file", "parameters": {}}},
+            "impl": read_file,
+        }
+    ]
+    # The model NEVER stops requesting a tool call -- one scripted response
+    # per round, all of them requesting one, more than _MAX_TOOL_ROUNDS deep.
+    always_calls_a_tool = [
+        _FakeResponse(
+            _FakeMessage(
+                content="",
+                tool_calls=[_FakeToolCall(f"call_{i}", "read_file", "{}")],
+            ),
+            finish_reason="tool_calls",
+        )
+        for i in range(C._MAX_TOOL_ROUNDS + 3)
+    ]
+    fake = _ScriptedClient(always_calls_a_tool, final_parsed=_Output())
+    monkeypatch.setattr(C, "_client", fake)
+
+    result = C.run_with_tools("investigate", "system", "user", tools, _Output)
+
+    assert isinstance(result, _Output), "must force a final answer, not raise or hang"
+    assert fake.create_call_count == C._MAX_TOOL_ROUNDS, (
+        "must stop issuing new tool-calling rounds at the cap, not run forever"
+    )
+
+
 def test_malformed_json_arguments_do_not_crash_either(monkeypatch):
     """`json.loads` on a truncated/garbled `arguments` string is itself a
     failure mode a small/free model can produce -- covered separately from
