@@ -53,6 +53,7 @@ from typing import Any, Protocol, TypeVar, get_args, get_origin
 
 import openai
 from openai import OpenAI
+import pydantic
 from pydantic import BaseModel, create_model
 
 from reqguard.errors import ReqGuardInternalError
@@ -260,7 +261,8 @@ def _call(method_path: str, stage: str, **kwargs: Any) -> Any:
     global _preferred_index
     n = len(_PROVIDER_BUILDERS)
     order = [(_preferred_index + i) % n for i in range(n)]
-    last_exc: openai.APIStatusError | None = None
+    last_exc: Exception | None = None
+    last_msg = ""
     tried_any = False
     for idx in order:
         result = _resolve(idx)
@@ -275,7 +277,18 @@ def _call(method_path: str, stage: str, **kwargs: Any) -> Any:
         try:
             response = fn(**call_kwargs)
         except openai.APIStatusError as exc:
-            last_exc = exc
+            # HTTP-status failures: rate limits, credit walls, account
+            # gates, outages.
+            last_exc, last_msg = exc, f"({exc.status_code}) {exc.message}"
+            continue
+        except pydantic.ValidationError as exc:
+            # A 200 response whose BODY isn't valid JSON for the schema --
+            # NOT an APIStatusError, found live: a Conduit response body of
+            # literally "The response did not gen[erate]... resetting the
+            # session." instead of JSON. The request succeeded at the HTTP
+            # layer; the content was garbage. Just as much a reason to try
+            # the next provider as an HTTP error would be.
+            last_exc, last_msg = exc, f"invalid response body: {exc}"
             continue
         _preferred_index = idx
         return response
@@ -286,9 +299,7 @@ def _call(method_path: str, stage: str, **kwargs: Any) -> Any:
             "AEROLINK_API_KEY) -- a live run needs one (--replay needs none)."
         )
     assert last_exc is not None
-    raise ReqGuardInternalError(
-        f"provider error ({last_exc.status_code}): {last_exc.message}"
-    ) from last_exc
+    raise ReqGuardInternalError(f"provider error {last_msg}") from last_exc
 
 
 def structured(
