@@ -389,8 +389,12 @@ def _call(method_path: str, stage: str, **kwargs: Any) -> Any:
 
     if not tried_any:
         raise ReqGuardInternalError(
-            "no provider key set (CONDUIT_API_KEY, OPENROUTER_API_KEY, or "
-            "AEROLINK_API_KEY) -- a live run needs one (--replay needs none)."
+            "no provider key set -- a live run needs one (--replay needs none).\n"
+            "  Quickest path: sign up at https://openrouter.ai, create a key at "
+            "https://openrouter.ai/keys,\n"
+            "  then: cp .env.example .env   and set OPENROUTER_API_KEY= there.\n"
+            "  (CONDUIT_API_KEY / AEROLINK_API_KEY also work, if you have one --"
+            " see .env.example.)"
         )
     assert last_exc is not None
     raise ReqGuardInternalError(f"provider error {last_msg}") from last_exc
