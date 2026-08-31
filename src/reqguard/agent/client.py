@@ -16,9 +16,10 @@ Verified empirically against `openai==3.6.0` + OpenRouter this session (a probe
 script ran real structured-output and tool-calling calls before this was
 written -- not from memory):
 
-- `OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_API_KEY)`.
-  Constructed **lazily** (`_get_client()`), so --replay/doctor/CI need no key --
-  same contract the Gemini port preserved. Key resolves from `OPENROUTER_API_KEY`.
+- `OpenAI(base_url=..., api_key=...)`, one per configured provider in
+  `_PROVIDER_BUILDERS` (aerolink/conduit/openrouter). Constructed **lazily**
+  and cached per-provider (`_resolve()`), so --replay/doctor/CI need no key
+  at all -- same contract the Gemini port preserved.
 - Model: pinned in policy.py. A free model must support BOTH structured output
   and tool calling; `nvidia/nemotron-3-super-120b-a12b:free` was verified to do
   both. Many free models do neither -- do not swap the model without re-probing.
@@ -120,41 +121,38 @@ _PROVIDER_BUILDERS: list[tuple[str, Any]] = [
     ("openrouter", _build_openrouter),
 ]
 
-# Lazy, cached -- built on first real use so --replay/doctor/CI need no key.
-# `_client` is also what tests/integration/test_stages.py's fake_client
-# fixture monkeypatches directly (bypassing resolution entirely, same as
-# before this chain existed) -- kept as the first check in _get_client() so
-# that continues to work unchanged.
+# `_client`/`_active_model` are a TEST-ONLY override hook --
+# tests/integration/test_stages.py's fake_client fixture monkeypatches
+# `_client` directly, and `_call()` below uses it as-is, bypassing the
+# provider chain entirely. Real live calls never set these two; they use
+# `_provider_cache`/`_preferred_index` instead. Kept separate on purpose
+# after a real bug: an earlier version cached ONE globally-advancing
+# provider index for the whole process, so a single transient failure on
+# provider A permanently stuck every later call in the same run onto
+# whichever provider it had advanced to -- even calls made *after* A had
+# recovered. Reproduced live: Conduit worked when probed standalone, but a
+# multi-requirement `analyze` run still failed all the way through to
+# OpenRouter's empty balance, because one earlier call in that same run had
+# already ratcheted the shared index past Conduit and never went back.
+# Fixed by making every `_call()` search the full chain independently.
 _client: OpenAI | None = None
 _active_model: str = MODEL
-_provider_index: int = 0
+
+_provider_cache: dict[int, tuple[OpenAI, str]] = {}
+_preferred_index: int = 0  # a starting-point HINT for the next call's
+# search (whichever provider worked last), never a permanent record.
 
 
-def _get_client() -> OpenAI:
-    global _client, _active_model, _provider_index
-    if _client is not None:
-        return _client
-    while _provider_index < len(_PROVIDER_BUILDERS):
-        _name, build = _PROVIDER_BUILDERS[_provider_index]
+def _resolve(index: int) -> tuple[OpenAI, str] | None:
+    """Build (or reuse the cached) client for `_PROVIDER_BUILDERS[index]`.
+    None if that provider has no key configured."""
+    if index not in _provider_cache:
+        _name, build = _PROVIDER_BUILDERS[index]
         result = build()
-        if result is not None:
-            _client, _active_model = result
-            return _client
-        _provider_index += 1
-    raise ReqGuardInternalError(
-        "no provider key set (CONDUIT_API_KEY, OPENROUTER_API_KEY, or "
-        "AEROLINK_API_KEY) -- a live run needs one (--replay needs none)."
-    )
-
-
-def _advance_provider() -> bool:
-    """Mark the active provider exhausted and move to the next candidate in
-    the chain. Returns False once the chain is exhausted (nothing left to
-    fail over to)."""
-    global _client, _provider_index
-    _provider_index += 1
-    _client = None
-    return _provider_index < len(_PROVIDER_BUILDERS)
+        if result is None:
+            return None
+        _provider_cache[index] = result
+    return _provider_cache[index]
 
 
 # OpenAI reasoning_effort has low|medium|high; our ladder (policy.py) has five.
@@ -227,39 +225,70 @@ def _assert_finished(response: Any) -> None:
 
 
 def _call(method_path: str, stage: str, **kwargs: Any) -> Any:
-    """Call `method_path` (e.g. "beta.chat.completions.parse") on the active
-    provider, with `model`/`max_tokens`/`reasoning_effort` filled in for
-    whichever provider that turns out to be -- `kwargs` never includes
-    `model` itself, since that's provider-specific (gpt-5.6-sol only exists
-    on aerolink).
+    """Call `method_path` (e.g. "beta.chat.completions.parse"), with
+    `model`/`max_tokens`/`reasoning_effort` filled in for whichever provider
+    ends up handling it -- `kwargs` never includes `model` itself, since
+    that's provider-specific (gpt-5.6-sol only exists on aerolink).
 
-    On `openai.APIStatusError` (401/402/403/404/429/5xx -- auth failures,
-    credit walls, account-level gates, rate limits, provider outages alike),
-    automatically fails over to the next provider in `_PROVIDER_BUILDERS` and
-    retries the SAME call, rather than surfacing the first provider's
-    failure immediately. Added live, after Conduit's free tier proved
-    persistently rate-limited (8 attempts, 429 every time, ~20 minutes) and
-    a working third option (aerolink) was verified — a single down provider
-    should not block a run when another configured one would work.
+    Test override: if `_client` is set (the fake_client fixture's
+    monkeypatch), it's used directly and the provider chain below is never
+    consulted at all.
 
-    Only raises once every configured provider has been tried and failed;
-    the error then names the LAST provider's failure, not the first, so the
-    message reflects what actually blocked the run to completion.
+    Real calls search the FULL chain on every invocation, starting from
+    `_preferred_index` (whichever provider worked last, an efficiency hint
+    only) and wrapping around through every other configured provider before
+    giving up -- never a permanent record that a provider is "dead" for the
+    rest of the run. That distinction is load-bearing, found live: an
+    earlier version advanced a single shared index forever, so one
+    transient failure on provider A permanently stuck every LATER call in
+    the same multi-requirement run onto whichever provider it had reached,
+    even after A had recovered. Reproduced directly: Conduit answered fine
+    when probed standalone, but a real `analyze` run still failed all the
+    way through to OpenRouter's empty balance, because an earlier call in
+    that same process had already advanced past Conduit and never revisited
+    it. Fixed by making the search local to each call.
+
+    Only raises once every configured provider has failed on THIS call;
+    the error names the LAST one tried, not the first.
     """
-    while True:
-        client = _get_client()
-        fn: Any = client
+    if _client is not None:
+        fn: Any = _client
         for part in method_path.split("."):
             fn = getattr(fn, part)
-        call_kwargs = {**kwargs, **_common_kwargs(stage, _active_model)}
+        return fn(**{**kwargs, **_common_kwargs(stage, _active_model)})
+
+    global _preferred_index
+    n = len(_PROVIDER_BUILDERS)
+    order = [(_preferred_index + i) % n for i in range(n)]
+    last_exc: openai.APIStatusError | None = None
+    tried_any = False
+    for idx in order:
+        result = _resolve(idx)
+        if result is None:
+            continue
+        tried_any = True
+        client, model = result
+        fn = client
+        for part in method_path.split("."):
+            fn = getattr(fn, part)
+        call_kwargs = {**kwargs, **_common_kwargs(stage, model)}
         try:
-            return fn(**call_kwargs)
+            response = fn(**call_kwargs)
         except openai.APIStatusError as exc:
-            if not _advance_provider():
-                raise ReqGuardInternalError(
-                    f"provider error ({exc.status_code}): {exc.message}"
-                ) from exc
-            # else: loop -- _get_client() now resolves the next provider
+            last_exc = exc
+            continue
+        _preferred_index = idx
+        return response
+
+    if not tried_any:
+        raise ReqGuardInternalError(
+            "no provider key set (CONDUIT_API_KEY, OPENROUTER_API_KEY, or "
+            "AEROLINK_API_KEY) -- a live run needs one (--replay needs none)."
+        )
+    assert last_exc is not None
+    raise ReqGuardInternalError(
+        f"provider error ({last_exc.status_code}): {last_exc.message}"
+    ) from last_exc
 
 
 def structured(
