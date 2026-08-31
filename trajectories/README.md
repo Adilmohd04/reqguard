@@ -1,9 +1,37 @@
 # Agent trajectories
 
-Two kinds of trajectory exist for this submission — ReqGuard's own internal
-agent (the product being evaluated), and the coding agents used to build it.
+Three kinds of trajectory exist for this submission — ReqGuard's own
+internal pipeline agents (the product being evaluated), the separate
+baseline control-arm agent, and the coding agents used to build it.
 
-## 1. ReqGuard's own agent — two representative runs
+## 0. The baseline arm — a distinct fifth agent
+
+The baseline (`prompts/baseline.md`, `evaluation/baseline.py`) is not a
+weaker version of the main pipeline — it's a genuinely different agent: one
+LLM call, no mutation, no tools beyond read access, asked the question a
+developer would actually type. Its representative trajectory is the replay
+fixture the killer case is built on —
+[`benchmarks/replay/case13-partial-fulfillment/REQ-13.baseline.json`](../benchmarks/replay/case13-partial-fulfillment/REQ-13.baseline.json):
+
+```json
+{
+  "requirement_id": "REQ-13",
+  "status": "PROTECTED",
+  "reasoning": "The suite has two tests on fulfillment_status covering both
+    documented outcomes: zero shipped reports 'pending' and all shipped
+    reports 'completed'. The function is small and its three branches are
+    exercised at their boundaries, so the reporting logic appears
+    adequately covered.",
+  "rationale": "Both status boundaries are tested, so the fulfillment
+    reporting looks protected."
+}
+```
+
+This is a real, confident, plausible-sounding verdict — and it's wrong. No
+code was ever run to check it. This single artifact is the whole reason the
+project exists: reasoning alone, however competent, isn't evidence.
+
+## 1. ReqGuard's own pipeline agent — two representative runs
 
 Both are `reqguard trajectory <path> --format md` renders of a real
 `trajectory.jsonl` (also included raw, alongside each `.md`, as the

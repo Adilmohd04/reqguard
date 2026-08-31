@@ -29,6 +29,34 @@ offline replay scores as if they were live-model results.
 
 ---
 
+## Versions, runtime, and cost
+
+Measured directly on the offline path (Windows, this session) — re-measure
+with `date` around any command above if you want your own numbers:
+
+| | Version |
+|---|---|
+| Python | 3.12.14 |
+| `openai` SDK | 3.6.0 |
+| `pydantic` | 2.13.5 |
+| `typer` | 0.27.2 |
+| `pytest` | 9.1.1 |
+
+| Command | Approx. runtime | Cost |
+|---|---|---|
+| `reqguard benchmark --arm both --replay benchmarks/replay` (18 cases, both arms) | ~63s | $0 — replay, no network |
+| `reqguard evaluate --results <dir>` | <1s | $0 |
+| Full `pytest` suite (237 tests) | ~45–65s | $0 |
+| `docker compose up --build` | build time + the two above | $0 |
+| A single-requirement **live** run (real model, not replay) | ~2 min, 15 API calls | your own key's usage — see the Numbers Rule note above; per-call token/dollar cost is a known accounting gap in the current provider chain, so only API-call counts are reliable to quote, not a dollar figure |
+| A 4-requirement **live** run against an external repo | 6–30+ min depending on provider health; ranged from ~6 min (healthy) to 25+ min or an outright provider-exhaustion failure during real testing this session | your own key's usage |
+
+The live-run range above is reported honestly, not smoothed over: third-party
+provider health (rate limits, shared-capacity saturation, account usage caps)
+was the dominant variable in every live run during this project's own
+testing, not the pipeline's own design. See `CHANGELOG.md` / `COLLAB.md` for
+the real incidents.
+
 ## Prerequisites
 
 | Path | Needs |

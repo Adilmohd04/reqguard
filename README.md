@@ -204,3 +204,29 @@ reqguard apply benchmarks/case13-partial-fulfillment --requirement REQ-13 \
 | `src/reqguard/tracing/` | append-only trajectory log (no hidden reasoning transcript) |
 | `benchmarks/` | 18 cases — 15 defect, 3 clean |
 | `docs/` | product spec, engineering blueprint (canonical), implementation manual |
+
+## The main failure mode
+
+ReqGuard's mutation gate requires the planner's proposed anchor text to match the
+target file **byte-for-byte** — it will not apply a mutation it can't locate
+exactly, because guessing is worse than refusing. That precision is where the
+system is most fragile: it depends on the model transcribing code exactly,
+whitespace included. Run live against [itsdangerous](https://github.com/pallets/itsdangerous),
+the planner found the right function and the right kind of mutation, but proposed
+an anchor with 20 spaces of indentation where the real file had 12. The gate
+correctly refused it — `INCONCLUSIVE`, not a false pass, not a corrupted file —
+but that also means a real gap can go unreported simply because the model
+couldn't phrase an exact-match anchor for it. The honest failure mode isn't
+"finds nothing" or "finds ghosts" — it's "sometimes can't act on what it
+correctly found," and it says so rather than hiding it.
+
+## The hot take
+
+The best illustration of why this project exists, ReqGuard found in its own
+build, not in a benchmark: this CLI's own exit-code handling had a real bug —
+a failing command, including our own go/no-go gate, could silently report
+success to the shell. A human caught it by actually checking the real exit
+code, not the tool. That's precisely the failure mode ReqGuard exists to
+catch in other people's code — a green result that doesn't mean what it
+claims to mean — and it's a fair reminder that the discipline has to apply to
+the tool itself first, not just the code it's checking.
