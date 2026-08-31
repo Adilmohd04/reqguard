@@ -5,73 +5,156 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ReqGuard report — {{ generated_at }}</title>
 <style>
-  :root { color-scheme: light dark; }
-  body { font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 2rem;
-         background: #fbfbfa; color: #1a1a1a; }
-  @media (prefers-color-scheme: dark) { body { background: #17171a; color: #e8e8e8; } }
-  h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
-  .sub { opacity: .6; margin-bottom: 1.5rem; }
-  .cards { display: flex; flex-wrap: wrap; gap: .75rem; margin-bottom: 1.5rem; }
-  .card { border: 1px solid rgba(128,128,128,.3); border-radius: 8px; padding: .75rem 1rem; min-width: 7rem; }
-  .card .n { font-size: 1.6rem; font-weight: 600; }
-  .card .l { opacity: .7; font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
-  table { border-collapse: collapse; width: 100%; margin-bottom: 2rem; }
-  th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid rgba(128,128,128,.25);
-           vertical-align: top; }
-  th { font-size: .75rem; text-transform: uppercase; opacity: .6; }
-  .badge { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .75rem;
-           font-weight: 600; }
-  .PROTECTED { background: #d8f3dc; color: #1b4332; }
-  .INSUFFICIENTLY_PROTECTED { background: #ffd6d6; color: #7d1128; }
-  .REPAIRED { background: #d0e8ff; color: #0b3d69; }
-  .INCONCLUSIVE { background: #eee; color: #444; }
-  pre { background: rgba(128,128,128,.12); padding: .6rem; border-radius: 6px; overflow-x: auto;
-        font-size: .8rem; margin: .3rem 0 0; }
-  details summary { cursor: pointer; }
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f6f9;
+    --surface: #ffffff;
+    --surface-2: #eef0f4;
+    --text: #191c24;
+    --text-dim: #5a6070;
+    --border: #dde1e8;
+    --accent: #33488f;
+    --accent-weak: #e7ebf7;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "Consolas", "Liberation Mono", monospace;
+    --sans: -apple-system, "Segoe UI", "Inter", Roboto, sans-serif;
+    --protected-bg: #dcf3e4; --protected-fg: #145233;
+    --gap-bg: #fbdfdd; --gap-fg: #7c1d28;
+    --repaired-bg: #dde8fb; --repaired-fg: #1e3a75;
+    --inconclusive-bg: #eceef1; --inconclusive-fg: #464c58;
+    --diff-add-bg: #e3f6e9; --diff-add-fg: #14532d;
+    --diff-del-bg: #fbe6e5; --diff-del-fg: #7c1d1d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121319; --surface: #191b23; --surface-2: #20222c;
+      --text: #e7e9f0; --text-dim: #949cae; --border: #2b2e3a;
+      --accent: #93aeff; --accent-weak: #232b47;
+      --protected-bg: #163827; --protected-fg: #7fe3ab;
+      --gap-bg: #3d1e21; --gap-fg: #f5a3a0;
+      --repaired-bg: #1d2c4d; --repaired-fg: #9fbaf7;
+      --inconclusive-bg: #262a34; --inconclusive-fg: #aab0bf;
+      --diff-add-bg: #14301f; --diff-add-fg: #8fe6ab;
+      --diff-del-bg: #38181a; --diff-del-fg: #f2a19d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font: 15px/1.6 var(--sans); margin: 0; padding: 2.5rem 2.25rem 3rem;
+    background: var(--bg); color: var(--text); max-width: 68rem; margin-inline: auto;
+  }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
+    flex-wrap: wrap; border-bottom: 1px solid var(--border); padding-bottom: 1.1rem; margin-bottom: 1.6rem; }
+  h1 { font-size: 1.3rem; font-weight: 700; letter-spacing: -.01em; margin: 0; text-wrap: balance; }
+  h1 .mark { color: var(--accent); }
+  .sub { color: var(--text-dim); font-size: .82rem; }
+  .sub code { font-family: var(--mono); font-size: .78rem; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+    gap: .7rem; margin-bottom: 2rem; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: .85rem 1rem; }
+  .card .n { font-size: 1.65rem; font-weight: 700; font-variant-numeric: tabular-nums;
+    letter-spacing: -.01em; line-height: 1.1; }
+  .card .l { color: var(--text-dim); font-size: .72rem; text-transform: uppercase;
+    letter-spacing: .05em; margin-top: .2rem; }
+  .card.accent { border-color: var(--accent); background: var(--accent-weak); }
+
+  h2 { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim);
+    font-weight: 700; margin: 0 0 .8rem; }
+
+  .reqs { display: flex; flex-direction: column; gap: .6rem; margin-bottom: 2rem; }
+  .req { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: .9rem 1.1rem; }
+  .req-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;
+    flex-wrap: wrap; }
+  .req-id { font-family: var(--mono); font-size: .8rem; font-weight: 600; color: var(--text-dim); }
+  .req-stmt { margin: .2rem 0 0; font-size: .92rem; text-wrap: balance; max-width: 60ch; }
+  .req-meta { display: flex; align-items: center; gap: .5rem; flex-shrink: 0; }
+  .sev { font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); }
+  .sev::before { content: "●"; margin-right: .3em; }
+  .sev.high::before { color: #d1453b; }
+  .sev.medium::before { color: #c8871f; }
+  .sev.low::before { color: var(--text-dim); }
+
+  .badge { display: inline-block; padding: .18rem .6rem; border-radius: 999px; font-size: .72rem;
+    font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+  .PROTECTED { background: var(--protected-bg); color: var(--protected-fg); }
+  .INSUFFICIENTLY_PROTECTED { background: var(--gap-bg); color: var(--gap-fg); }
+  .REPAIRED { background: var(--repaired-bg); color: var(--repaired-fg); }
+  .INCONCLUSIVE { background: var(--inconclusive-bg); color: var(--inconclusive-fg); }
+
+  .reason { color: var(--text-dim); font-size: .85rem; margin-top: .5rem; }
+
+  details { margin-top: .6rem; }
+  details > summary { cursor: pointer; font-size: .82rem; color: var(--accent); font-weight: 600;
+    list-style: none; }
+  details > summary::-webkit-details-marker { display: none; }
+  details > summary::before { content: "▸ "; }
+  details[open] > summary::before { content: "▾ "; }
+  details + details { margin-top: .5rem; }
+
+  pre { font-family: var(--mono); font-size: .8rem; line-height: 1.55; background: var(--surface-2);
+    border: 1px solid var(--border); padding: .7rem .85rem; border-radius: 8px; overflow-x: auto;
+    margin: .5rem 0 0; white-space: pre; }
+  pre .add { display: block; background: var(--diff-add-bg); color: var(--diff-add-fg);
+    margin: 0 -.85rem; padding: 0 .85rem; }
+  pre .del { display: block; background: var(--diff-del-bg); color: var(--diff-del-fg);
+    margin: 0 -.85rem; padding: 0 .85rem; }
+
+  footer { color: var(--text-dim); font-size: .78rem; border-top: 1px solid var(--border);
+    padding-top: 1rem; margin-top: 2.5rem; }
 </style>
 </head>
 <body>
-<h1>ReqGuard report</h1>
-<div class="sub">generated {{ generated_at }} · {{ repo }}</div>
+<header>
+  <h1><span class="mark">ReqGuard</span> report</h1>
+  <div class="sub">{{ generated_at }} · <code>{{ repo }}</code></div>
+</header>
 
 <div class="cards">
   <div class="card"><div class="n">{{ s.analyzed }}</div><div class="l">Analyzed</div></div>
   <div class="card"><div class="n">{{ s.protected }}</div><div class="l">Protected</div></div>
-  <div class="card"><div class="n">{{ s.gaps }}</div><div class="l">Potential gaps</div></div>
+  <div class="card{% if s.gaps %} accent{% endif %}"><div class="n">{{ s.gaps }}</div><div class="l">Potential gaps</div></div>
   <div class="card"><div class="n">{{ s.repaired }}</div><div class="l">Repaired</div></div>
   <div class="card"><div class="n">{{ s.inconclusive }}</div><div class="l">Inconclusive</div></div>
   <div class="card"><div class="n">{{ s.high_risk_gaps }}</div><div class="l">High-risk gaps</div></div>
 </div>
 
-<table>
-  <thead><tr><th>Requirement</th><th>Severity</th><th>Status</th><th>Detail</th></tr></thead>
-  <tbody>
-  {% for v in verdicts %}
-    <tr>
-      <td><strong>{{ v.requirement.id }}</strong><br><span style="opacity:.7">{{ v.requirement.statement }}</span></td>
-      <td>{{ v.requirement.severity.value }}</td>
-      <td><span class="badge {{ v.status }}">{{ v.status.replace("_", " ") }}</span></td>
-      <td>
-        {% if v.inconclusive_reason %}{{ v.inconclusive_reason }}{% endif %}
-        {% if v.mutation %}
-          <details><summary>mutation: {{ v.mutation.mutation_type.value }} — {{ v.mutation.description }}</summary>
-          {% if v.result and v.result.diff %}<pre>{{ v.result.diff }}</pre>{% endif %}</details>
-        {% endif %}
-        {% if v.repair %}
-          <details><summary>repair test — {{ v.repair.test_path }}{% if v.verification and not v.verification.verified %} (unverified){% endif %}</summary>
-          <pre>{{ v.repair.test_source }}</pre></details>
-        {% endif %}
-      </td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
+<h2>Requirements</h2>
+<div class="reqs">
+{% for v in verdicts %}
+  <div class="req">
+    <div class="req-top">
+      <div>
+        <div class="req-id">{{ v.requirement.id }}</div>
+        <p class="req-stmt">{{ v.requirement.statement }}</p>
+      </div>
+      <div class="req-meta">
+        <span class="sev {{ v.requirement.severity.value }}">{{ v.requirement.severity.value }}</span>
+        <span class="badge {{ v.status }}">{{ v.status.replace("_", " ") }}</span>
+      </div>
+    </div>
+    {% if v.inconclusive_reason %}<p class="reason">{{ v.inconclusive_reason }}</p>{% endif %}
+    {% if v.mutation %}
+      <details><summary>Mutation — {{ v.mutation.mutation_type.value }}: {{ v.mutation.description }}</summary>
+      {% if v.result and v.result.diff %}<pre>{% for line in v.result.diff.split('\n') %}{% if line.startswith('+') and not line.startswith('+++') %}<span class="add">{{ line }}</span>
+{% elif line.startswith('-') and not line.startswith('---') %}<span class="del">{{ line }}</span>
+{% else %}{{ line }}
+{% endif %}{% endfor %}</pre>{% endif %}</details>
+    {% endif %}
+    {% if v.repair %}
+      <details><summary>Repair test — {{ v.repair.test_path }}{% if v.verification and not v.verification.verified %} (unverified){% endif %}</summary>
+      <pre>{{ v.repair.test_source }}</pre></details>
+    {% endif %}
+  </div>
+{% endfor %}
+</div>
 
 {% if metrics %}
 <h2>Metrics</h2>
 <pre>{{ metrics }}</pre>
 {% endif %}
 
-<p style="opacity:.5;font-size:.8rem">A generated report — not a web application. Self-contained, no external assets.</p>
+<footer>A generated report — not a web application. Self-contained, no external assets.</footer>
 </body>
 </html>
