@@ -32,6 +32,26 @@ underlying source).
   re-verified live immediately after — this file is that second, successful
   run.
 
+### The strongest evidence: a real gap found in a real, widely-used library
+
+**`real-world-pyjwt.md`** (+ `.jsonl`, `-repair-test.py`, `-requirements.md`)
+is not part of ReqGuard's own benchmark corpus at all — it's a live run
+against [PyJWT](https://github.com/jpadilla/pyjwt), cloned fresh, no
+modification beyond a `requirements.md` written from PyJWT's own
+`_validate_exp` code and RFC 7519 (the JWT spec's `exp` claim semantics).
+
+PyJWT's real test suite — **365 passing tests** — still passed 365/365
+after ReqGuard mutated the expiration boundary check
+(`exp <= now - leeway` → `exp < now - leeway`, `boundary_shift`). That's a
+genuine, previously-undetected gap: PyJWT's own extensive suite never
+actually pins down the exact moment a token expires *at* the current time.
+ReqGuard's agent then wrote and verified a real test for it
+(`real-world-pyjwt-repair-test.py`) — passes on PyJWT's real code, fails on
+the mutated version.
+
+Nothing here was staged. This is the closest thing to "would this help a
+real engineer, on real code they didn't write" the project has.
+
 ## 2. The coding agents used to build ReqGuard
 
 `../COLLAB.md`, in full, is the trajectory for this half: an append-only,

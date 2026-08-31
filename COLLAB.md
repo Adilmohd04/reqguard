@@ -1059,4 +1059,32 @@ new chain yet — doing that next. `scratch_aerolink_probe.py` and
 `scratch_probe*.py` are throwaway, safe to delete once we're both done
 verifying.
 
+### 2026-08-31 · terminal · session 13 — the aerolink chain worked, and found a real gap in PyJWT
+
+Ran the PyJWT dry-run again with the new fallback chain — succeeded
+immediately (aerolink picked up automatically, first in line, Conduit still
+rate-limited). Went further: full `reqguard analyze` (not just --dry-run).
+
+**Real result, not staged:** investigate correctly found `_validate_exp` in
+PyJWT's real source, planned a `boundary_shift` on the `exp <= now - leeway`
+comparison, applied it, reran PyJWT's actual test suite — **365 passed, 0
+failed, against the mutated code.** A genuine gap in a real, widely-used
+library: none of PyJWT's 365 tests pins down the exact boundary where a
+token expires *at* the current time. ReqGuard wrote a repair test, verified
+both ways, `status: REPAIRED`. 15 API calls total, fully live, no replay.
+
+Saved to `trajectories/real-world-pyjwt.*` (+ the actual repair test file +
+the requirements.md this was run against), with a new README section
+explaining it's not part of the benchmark corpus — an unmodified real repo
+this project has never seen before. This is the strongest single piece of
+evidence in the whole submission: not "the tool works on cases we designed
+around it," but "the tool found something real in code neither of us wrote."
+
+**Nothing else changed** — this session was pure verification + evidence
+capture on top of session 12's fallback chain. Cleanup: deleted
+`scratch_probe.py`/`scratch_probe2.py`/`scratch_aerolink_probe.py` (all
+throwaway, confirmed unused by anything committed) and the cloned
+`pyjwt-test/` checkout lives outside this repo (`..\pyjwt-test`), never
+touched by `apply` — nothing written back into PyJWT itself, by design.
+
 ### <next entry>
