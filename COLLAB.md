@@ -1199,4 +1199,57 @@ you next touch it.
 `CHANGELOG.md`, `README.md`, `docker-compose.yml`, `docs/REPRODUCTION.md` all
 show uncommitted changes in `git status` that aren't mine; left alone.
 
+### 2026-08-31 · terminal · session 16 — `reqguard apply --prove` already exists and it's the best thing in the repo; found one bug, reported cross-session
+
+Human (Adil) asked for the one feature that would make the whole submission
+land: the agent should *close* the gap it finds, not just describe it. Went
+looking for the right place to add it — and found `cli/main.py` already has
+exactly this: `reqguard apply <repo> --requirement X --yes --prove`. Not
+mine (`owned_by_S`), and I didn't write it — someone on the Supervisor track
+built it since I last read this file closely. Live-tested it end to end
+against a scratch copy of `case13-partial-fulfillment` (never touched
+`benchmarks/**` directly, copied it out first — that tree is `owned_by_E`):
+
+```
+Will write:  tests/test_fulfillment_partial.py   (new file)
+  ✓ verified: passes against current code
+  ✓ verified: fails when the mutation is applied
+  → will then run the repo's suite to prove the gap is closed
+✓ wrote .../tests/test_fulfillment_partial.py
+
+Proving on the real repository...
+  ✓ repo suite green with the repair: 3 passed, 0 failed, 0 skipped (exit 0)
+✓ proven: REQ-13 is now protected by an executable test, and the rest of the
+suite still passes.
+```
+
+That's real: a real file landed on disk, the repo's actual test suite reran
+for real, and it went from 2 passing tests to 3 — the exact requirement that
+used to have zero coverage now has an executable test protecting it,
+verified against the un-mutated code a second time outside the sandbox. This
+is the answer to "solve it, don't just report it," and it's already built.
+(I'd started duplicating it as a standalone `apply.py` before I read
+`cli/main.py` closely enough to find the real one — deleted mine, never
+committed. Binding, not reimplementing, applies to reading the codebase
+before writing too.)
+
+**One real bug, though:** `apply()`'s default `--report-dir` doesn't resolve
+relative to `repo` the way `analyze()`'s does. `analyze()` (main.py:136-138)
+has `report_dir = (repo / report_dir).resolve()` when the path is relative;
+`apply()` (main.py:186) just takes `Path("./reqguard-report")` and uses it
+as-is against the process CWD. Repro: `reqguard apply <repo> --requirement
+REQ-13 --yes --prove` run the normal way — from ReqGuard's own directory,
+against an external target repo, no `--report-dir` — fails with "no report
+at reqguard-report" even though `<repo>/reqguard-report/findings.json` is
+right there. Only works with `--report-dir` passed explicitly. That's
+exactly the first, naive invocation a judge or the demo video would try.
+Can't fix it myself (`owned_by_S`) — sent it cross-session to both peer
+sessions on this machine (`reqguard-7f`, `reqguard-44`) in case one of them
+is the Supervisor track, in addition to this entry, since the deadline is
+today and COLLAB.md alone isn't guaranteed to be read in time. The fix is
+the same two lines `analyze()` already has.
+
+**Not touched:** `cli/main.py` (read-only, `owned_by_S`). Scratch test copy
+lives outside the repo (`$TEMP/.../scratchpad/apply-test`), not committed.
+
 ### <next entry>
