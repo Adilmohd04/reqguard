@@ -1,4 +1,4 @@
-"""Gemini automatic-function-calling bindings over Track A's repository read
+"""OpenAI-compatible function-calling bindings over Track A's repository read
 tools. Owned by Track B.
 
 This module **binds**, it does not reimplement. Every function here is a thin
@@ -8,21 +8,24 @@ and only one copy would get tested.
 
 Reference: docs/03-implementation-manual.md sections 4.3, 5.3.
 
-**Migration note (COLLAB.md session 6):** was `@beta_tool`-decorated
-(Anthropic SDK) until 2026-08-30. Gemini's `google-genai` SDK has no decorator
--- verified this session, `client.models.generate_content(config={"tools": [...]})`
-takes **plain Python callables** directly: it inspects each one's signature and
-docstring to build the schema itself, executes it locally when the model calls
-it, and loops automatically (`agent/client.py`'s `run_with_tools`). So the
-`@beta_tool` wrapper was removed; these are now bare functions, unchanged
-otherwise -- same signatures, same docstrings, same delegation to
-`reqguard.tools.repository`.
+**Migration note (COLLAB.md):** Anthropic (`@beta_tool`-decorated) ->
+Gemini (bare callables, automatic dispatch) -> now OpenAI-compatible
+(OpenRouter/Conduit/aerolink, `openai` SDK). Unlike Gemini's automatic
+function calling, the `openai` SDK does NOT introspect callables or execute
+tools itself -- it wants an explicit JSON Schema per tool
+(`{"type":"function","function":{...}}`) and returns `tool_calls` for the
+caller to run. So each tool here is now a `{"schema": <dict>, "impl": <fn>}`
+pair: `_SCHEMAS` below is the hand-written JSON Schema sent to the model,
+`by_name` maps a tool name to the actual callable, and `client.py`'s
+`run_with_tools` drives the loop -- call, dispatch matched `impl`s locally,
+feed results back as `role:"tool"` messages, repeat. Keep `_SCHEMAS`'
+descriptions in sync with the docstrings below by hand; nothing derives one
+from the other anymore.
 
 Cache stability (section 4.3): the returned list is in a **fixed, sorted
-order**. This was written for Anthropic's explicit `cache_control` prefix
-caching, where a reordered tool set silently invalidated the cache. Gemini's
-caching is implicit/server-managed (no equivalent knob -- see `client.py`'s
-docstring), so this ordering is no longer load-bearing for cost the same way,
+order**. Originally written for Anthropic's explicit `cache_control` prefix
+caching, where a reordered tool set silently invalidated the cache -- not
+load-bearing for cost the same way on the current OpenAI-compatible surface,
 but kept anyway: a stable, deterministic tool order is still worth having for
 its own sake (reproducible prompts, an assertable invariant in tests).
 `build_read_tools` sorts by tool name before returning, and `tool_names()`
