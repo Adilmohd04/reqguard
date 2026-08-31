@@ -1,8 +1,0 @@
-{"tool": "run_tests", "result_summary": "baseline: 2 passed, 0 failed, exit 0", "step": 1, "ts": "2026-08-30T12:23:49Z", "type": "tool_result", "requirement_id": "REQ-01", "stage": "execute"}
-{"rationale": "Selected ship_order because it contains the only cancelled-status guard for the requirement.", "step": 2, "ts": "2026-08-30T12:23:49Z", "type": "decision", "requirement_id": "REQ-01", "stage": "investigate"}
-{"rationale": "Deleting the two guard lines is the smallest plausible change that lets a cancelled order ship.", "step": 3, "ts": "2026-08-30T12:23:49Z", "type": "decision", "requirement_id": "REQ-01", "stage": "plan"}
-{"tool": "apply_mutation", "result_summary": "remove_guard on src/orders/service.py::ship_order", "step": 4, "ts": "2026-08-30T12:23:49Z", "type": "tool_result", "requirement_id": "REQ-01", "stage": "plan"}
-{"tool": "run_tests", "result_summary": "mutated: 2 passed, 0 failed, exit 0", "step": 5, "ts": "2026-08-30T12:23:50Z", "type": "tool_result", "requirement_id": "REQ-01", "stage": "execute"}
-{"payload": {"survived": true}, "step": 6, "ts": "2026-08-30T12:23:50Z", "type": "verdict", "requirement_id": "REQ-01", "stage": "execute"}
-{"rationale": "pytest.raises(OrderCancelledError) on a cancelled order is the assertion that detects the missing guard.", "step": 7, "ts": "2026-08-30T12:23:50Z", "type": "decision", "requirement_id": "REQ-01", "stage": "repair"}
-{"payload": {"verified": true, "passes_on_original": true, "kills_mutant": true}, "step": 8, "ts": "2026-08-30T12:23:52Z", "type": "verdict", "requirement_id": "REQ-01", "stage": "repair"}

@@ -63,12 +63,26 @@ outcome, not an opinion.
 
 ```bash
 uv venv --python 3.12 && uv pip install -e ".[dev]"
-export CONDUIT_API_KEY=...            # or: OPENROUTER_API_KEY=...
+
+# A live run uses YOUR OWN model key — ReqGuard ships with none. The client
+# is OpenAI-wire, so any OpenAI-compatible endpoint works; set exactly one:
+export AEROLINK_API_KEY=...           # aerolink cgapi (gpt-5.6-sol)
+#   or: export CONDUIT_API_KEY=...    (+ optional CONDUIT_BASE_URL)
+#   or: export OPENROUTER_API_KEY=... (openrouter.ai)
+# Offline replay/doctor/CI need NO key at all (see "Reproduce").
 
 reqguard analyze .                    # writes ./reqguard-report/
 reqguard analyze . --requirement REQ-07 --dry-run
 reqguard apply --requirement REQ-07   # the ONLY write path into your repo
 ```
+
+**Bring your own key.** ReqGuard does not bundle a model key or credits — you
+supply one. The model call surface (`agent/client.py`) is OpenAI-compatible, so
+any provider that speaks the OpenAI Chat Completions API works (OpenAI,
+OpenRouter, Conduit, aerolink's `cgapi` endpoint, or a local gateway). If more
+than one key is set, the client tries them in order (aerolink → Conduit →
+OpenRouter) and fails over on a provider error. Everything offline — the replay
+corpus, `doctor`, CI — runs with **no key and no spend**.
 
 `reqguard.yaml` is optional — every field has a default (see
 `docs/03-implementation-manual.md` §14). Project context goes in an optional
@@ -111,8 +125,7 @@ today. (This is not a claim that it's a bug or a vulnerability — the
 inclusive comparison may be entirely deliberate. What's demonstrated is
 narrower: a real, executable coverage gap, found and closed, in code
 this project never designed around.) ReqGuard then wrote and verified a
-test for it. Full trajectory, the actual repair test, and the exact
-requirements doc it ran against: [`trajectories/real-world-pyjwt.md`](trajectories/real-world-pyjwt.md).
+test for it.
 
 ## Reproduce
 
@@ -134,12 +147,9 @@ reqguard evaluate --results benchmarks/results/<timestamp>
 
 `reqguard doctor --case <case> --replay benchmarks/replay` runs the six kill
 criteria (§20) and is the go/no-go gate; all 18 cases pass it. A live (paid) run
-is the same commands **without `--replay`** and needs `CONDUIT_API_KEY` (+
-`CONDUIT_BASE_URL`) or `OPENROUTER_API_KEY`.
-
-Full step-by-step for a clean machine, the Numbers Rule, and the opt-in live
-profile: **[`docs/REPRODUCTION.md`](docs/REPRODUCTION.md)**. The version-by-version
-experiment log (v0→v6): **[`CHANGELOG.md`](CHANGELOG.md)**.
+is the same commands **without `--replay`** and needs your own OpenAI-compatible
+key — one of `AEROLINK_API_KEY`, `CONDUIT_API_KEY` (+ `CONDUIT_BASE_URL`), or
+`OPENROUTER_API_KEY`. ReqGuard ships no key or credits; you bring your own.
 
 ## The benchmark corpus
 
@@ -167,6 +177,22 @@ modify a test file — enforced at the gate, by a standing unit test, and
 re-checked from recorded diffs by the evaluator. Repairs are written to the
 report directory; `reqguard apply` is the only path that writes into your repo,
 it refuses unverified repairs, and it refuses to overwrite.
+
+`reqguard apply --prove` goes one step further: after writing the verified
+repair test, it runs your repository's **own** test suite to prove the gap is
+actually closed and nothing else broke. If the suite isn't green with the
+repair present, the write is rolled back and the repo is left exactly as it
+was — so the agent never leaves your code in a broken state. This turns
+"trust the report" into "watch the gap close on the real repo," and it runs
+offline against the replay corpus with no key:
+
+```bash
+reqguard analyze benchmarks/case13-partial-fulfillment --replay benchmarks/replay
+reqguard apply benchmarks/case13-partial-fulfillment --requirement REQ-13 \
+  --report-dir benchmarks/case13-partial-fulfillment/reqguard-report --yes --prove
+# → ✓ repo suite green with the repair: 3 passed, 0 failed (exit 0)
+# → ✓ proven: REQ-13 is now protected by an executable test
+```
 
 ## Layout
 

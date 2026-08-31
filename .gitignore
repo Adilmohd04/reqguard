@@ -11,3 +11,15 @@ build/
 reqguard-report/
 benchmarks/results/
 .env
+
+# Internal multi-agent build process -- real, kept locally, not part of the
+# public repo (untracked 2026-08-31 via `git rm --cached`, history intact).
+AGENTS.md
+CHANGELOG.md
+CLAUDE.md
+COLLAB.md
+/crew/
+/docs/
+/trajectories/
+/.kiro/
+micro1 - First Hackathon*.pdf
