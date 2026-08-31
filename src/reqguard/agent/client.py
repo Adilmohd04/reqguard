@@ -42,13 +42,22 @@ written -- not from memory):
   `trajectory.py`'s `_coerce_usage` duck-types via `model_dump()`, so it captures
   these verbatim; only a reader hardcoded to Anthropic/Gemini field names would
   need updating (flagged in COLLAB.md, not in this module's scope).
-- Retries: the `openai` SDK retries transient 429/5xx internally. No extra wrapper.
+- Retries: the `openai` SDK retries transient 429/5xx internally (default 2x)
+  before raising -- but found live to not be enough on its own: a real Conduit
+  503 ("Temporary service interruption. Retry the last turn...") still
+  surfaced as an exception after the SDK's own retries were exhausted, while
+  aerolink was separately capped and OpenRouter separately underfunded --
+  all three failing on the SAME call, for three different reasons. `_call()`
+  below adds one more same-provider retry specifically for 429/5xx (never for
+  402/403 -- those are credit/auth walls, not transience) before moving on to
+  the next provider in the chain.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+import time
 from typing import Any, Protocol, TypeVar, get_args, get_origin
 
 import openai
@@ -59,6 +68,9 @@ from pydantic import BaseModel, create_model
 from reqguard.errors import ReqGuardInternalError
 from reqguard.agent import policy
 from reqguard.agent.policy import BASE_URL, MAX_TOKENS, MODEL
+
+_RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
+_RETRY_BACKOFF_SECONDS = (2.0, 5.0)
 
 __all__ = ["structured", "run_with_tools", "Trace"]
 
@@ -225,6 +237,34 @@ def _assert_finished(response: Any) -> None:
             )
 
 
+def _call_with_transient_retry(fn: Any, call_kwargs: dict[str, Any], provider_name: str) -> Any:
+    """Call `fn(**call_kwargs)`, retrying in place (same provider) when the
+    failure is a 429/5xx -- found live to matter: the `openai` SDK's own
+    internal retries aren't always enough (a real Conduit 503 outlasted
+    them), and the error body itself said to retry ("Retry the last turn;
+    your conversation and tool state are preserved"). 402/403 (credit/auth
+    walls) are never retried here -- they're not transient, and burning
+    `_RETRY_BACKOFF_SECONDS` on one just delays reaching a provider that can
+    actually answer."""
+    last: openai.APIStatusError | None = None
+    for attempt, delay in enumerate((0.0, *_RETRY_BACKOFF_SECONDS)):
+        if delay:
+            time.sleep(delay)
+        try:
+            return fn(**call_kwargs)
+        except openai.APIStatusError as exc:
+            last = exc
+            if exc.status_code not in _RETRY_STATUS_CODES:
+                raise
+            print(
+                f"  ({provider_name}: {exc.status_code}, retrying in-place "
+                f"[{attempt + 1}/{len(_RETRY_BACKOFF_SECONDS) + 1}])",
+                file=sys.stderr,
+            )
+    assert last is not None
+    raise last
+
+
 def _call(method_path: str, stage: str, **kwargs: Any) -> Any:
     """Call `method_path` (e.g. "beta.chat.completions.parse"), with
     `model`/`max_tokens`/`reasoning_effort` filled in for whichever provider
@@ -269,16 +309,18 @@ def _call(method_path: str, stage: str, **kwargs: Any) -> Any:
         if result is None:
             continue
         tried_any = True
+        name, _builder = _PROVIDER_BUILDERS[idx]
         client, model = result
         fn = client
         for part in method_path.split("."):
             fn = getattr(fn, part)
         call_kwargs = {**kwargs, **_common_kwargs(stage, model)}
         try:
-            response = fn(**call_kwargs)
+            response = _call_with_transient_retry(fn, call_kwargs, name)
         except openai.APIStatusError as exc:
             # HTTP-status failures: rate limits, credit walls, account
-            # gates, outages.
+            # gates, outages -- already retried in-place if transient (see
+            # _call_with_transient_retry); still failing means move on.
             last_exc, last_msg = exc, f"({exc.status_code}) {exc.message}"
             continue
         except pydantic.ValidationError as exc:
