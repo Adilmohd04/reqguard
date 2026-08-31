@@ -32,7 +32,7 @@ underlying source).
   re-verified live immediately after — this file is that second, successful
   run.
 
-### The strongest evidence: a real gap found in a real, widely-used library
+### The strongest evidence: an independent run against unmodified real code
 
 **`real-world-pyjwt.md`** (+ `.jsonl`, `-repair-test.py`, `-requirements.md`)
 is not part of ReqGuard's own benchmark corpus at all — it's a live run
@@ -40,11 +40,17 @@ against [PyJWT](https://github.com/jpadilla/pyjwt), cloned fresh, no
 modification beyond a `requirements.md` written from PyJWT's own
 `_validate_exp` code and RFC 7519 (the JWT spec's `exp` claim semantics).
 
-PyJWT's real test suite — **365 passing tests** — still passed 365/365
-after ReqGuard mutated the expiration boundary check
-(`exp <= now - leeway` → `exp < now - leeway`, `boundary_shift`). That's a
-genuine, previously-undetected gap: PyJWT's own extensive suite never
-actually pins down the exact moment a token expires *at* the current time.
+**What this shows, precisely — no more:** ReqGuard mutated the expiry
+boundary in `_validate_exp` (`exp <= now - leeway` → `exp < now - leeway`,
+`boundary_shift`). PyJWT's own real test suite — 365 tests — passed 365/365
+against the mutated code. **That boundary has no executable protection in
+PyJWT's suite as it exists today.** This is not a claim that it's a bug, a
+vulnerability, or that the gap was unknown to PyJWT's maintainers — the
+inclusive comparison may be entirely deliberate. What's demonstrated is
+narrower and fully evidenced: ReqGuard found and closed a real, executable
+coverage gap in code it had never seen, without that code being built
+around what the agent catches.
+
 ReqGuard's agent then wrote and verified a real test for it
 (`real-world-pyjwt-repair-test.py`) — passes on PyJWT's real code, fails on
 the mutated version.

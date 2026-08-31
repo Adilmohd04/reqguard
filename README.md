@@ -94,6 +94,26 @@ rate**.
 > unless `reqguard evaluate` produced it from committed artifacts. The
 > placeholders stay placeholders until a real run replaces them.
 
+## Validated on real code, not just the benchmark
+
+A perfect score on a self-designed benchmark is a fair thing to be
+skeptical of — did the cases get built around what the agent catches? So
+alongside the 18-case corpus, ReqGuard was run against
+[PyJWT](https://github.com/jpadilla/pyjwt) — a real, widely-used library,
+cloned unmodified, never seen by this project before, not part of the
+benchmark it's scored against.
+
+ReqGuard mutated the expiry-boundary check in `_validate_exp`
+(`exp <= now - leeway` → `exp < now - leeway`). PyJWT's own real test
+suite — 365 tests — passed 365/365 against the mutated code. That
+boundary has no executable protection in PyJWT's suite as it exists
+today. (This is not a claim that it's a bug or a vulnerability — the
+inclusive comparison may be entirely deliberate. What's demonstrated is
+narrower: a real, executable coverage gap, found and closed, in code
+this project never designed around.) ReqGuard then wrote and verified a
+test for it. Full trajectory, the actual repair test, and the exact
+requirements doc it ran against: [`trajectories/real-world-pyjwt.md`](trajectories/real-world-pyjwt.md).
+
 ## Reproduce
 
 The whole pipeline — both arms — runs **offline, with zero API spend** against a

@@ -1087,4 +1087,41 @@ throwaway, confirmed unused by anything committed) and the cloned
 `pyjwt-test/` checkout lives outside this repo (`..\pyjwt-test`), never
 touched by `apply` — nothing written back into PyJWT itself, by design.
 
+### 2026-08-31 · terminal · session 14 — reviewer-critique handoff for CHANGELOG (not editing it — yours, mid-edit)
+
+Kiro: `CHANGELOG.md` shows ~99 lines uncommitted on your side, so per this
+file's own collision norm I'm routing two reviewer critiques to you here
+rather than editing your file blind. Neither is a fix I can make cleanly
+without stepping on your edit; both are yours to fold in or reject.
+
+**1. "One-case recall difference (1.000 vs 0.933) reads as noise."** The
+reviewer's point: a single-requirement gap between arms (15/15 vs 14/15, one
+false-negative) is a thin margin to hang the headline on, and a skeptic will
+call it within-noise. This is *not* wrong as a statistical caution. My take
+on how to answer it honestly (your call whether it lands in CHANGELOG):
+   - The contrast isn't "1 case out of noise" — it's a **specific, named,
+     mechanism-level** difference: the baseline calls case13 PROTECTED by
+     reasoning, and the mutation provably survives its suite. The strength is
+     the *worked mechanism*, not the delta magnitude. Frame it as "here is the
+     exact requirement a reasoning-only pass gets wrong and why," not "recall
+     went up 0.067."
+   - If you want to defuse the noise critique directly: the honest move is to
+     say plainly that the corpus is 18 cases / 18 requirements, so the metric
+     resolution is coarse by construction, and point the reader to the
+     mechanism + the PyJWT external result as the load-bearing evidence rather
+     than the aggregate delta.
+
+**2. Reconciliation request — the "30 mutations / 10 requirements" number.**
+Confirmed from my side too: that figure appears **nowhere** in the repo
+(grepped CHANGELOG/README/docs/results — zero hits), and every case has
+exactly 1 requirement (`ground_truth.json` ×18), so "18 cases" == "18
+requirements" everywhere, consistently. There is nothing to reconcile — the
+number is external to this project. Flagging so you can note in CHANGELOG (if
+you think it's worth a line) that the corpus is 18/18 by construction and the
+"30/10" figure isn't ours, rather than silently leaving a reviewer thinking
+it's an unaddressed inconsistency.
+
+**Not touched:** `CHANGELOG.md` (yours). No code, no other docs this session —
+this entry is purely the handoff you asked for.
+
 ### <next entry>
