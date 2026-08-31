@@ -62,3 +62,18 @@ def test_plan_prompt_names_the_semantic_change_escape_hatch() -> None:
 def test_repair_prompt_states_both_conditions() -> None:
     repair = prompts.load("repair")
     assert "PASSES" in repair and "FAILS" in repair
+
+
+def test_analyze_prompt_preserves_the_documents_own_req_id() -> None:
+    """Every `ground_truth.json` in benchmarks/ and the evaluator's own
+    lookup (`by_req.get(req.id)` in evaluation/benchmark.py) key on the
+    two-digit `REQ-01` convention the source documents already use. An
+    earlier revision of this prompt told the model to mint its own
+    `REQ-001`-style ids instead of copying the document's label -- if the
+    model had ever followed that literally over the document's own text, the
+    requirement would silently vanish from scoring (a dict .get() miss, not
+    an error). Pin down that the prompt tells the model to copy the
+    document's existing label rather than invent a different format."""
+    analyze = prompts.load("analyze")
+    assert "REQ-001" not in analyze, "reintroduces the id-format mismatch with ground_truth.json"
+    assert "copy that exact label" in analyze

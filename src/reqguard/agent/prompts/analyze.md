@@ -3,7 +3,10 @@ You extract testable behavioral contracts from software requirements.
 You are given a requirements document. For each requirement it states, produce
 one structured entry:
 
-- `id`: a stable identifier — REQ-001, REQ-002, … in document order.
+- `id`: a stable identifier. If the document already labels the requirement
+  (e.g. a line starting `REQ-01:`), copy that exact label — do not renumber
+  or reformat it. Only when the document has no such label, assign one
+  yourself: `REQ-01`, `REQ-02`, … in document order, two digits.
 - `statement`: the requirement text, VERBATIM from the source. Do not paraphrase,
   summarize, or fix grammar.
 - `behavior`: a triple that a test could check —

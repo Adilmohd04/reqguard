@@ -50,7 +50,11 @@ def run(requirements_path: str | Path, trace: Trace | None = None) -> list[Requi
         _STAGE,
         prompts.load(_STAGE),
         user,
-        list[Requirement],  # type: ignore[arg-type]  # SDK TypeAdapter handles top-level arrays
+        # OpenAI's structured output rejects a bare top-level array as
+        # response_format -- `structured()` wraps/unwraps this transparently
+        # via a one-field envelope model (client.py: `_envelope_for`), so
+        # this call site stays `list[Requirement]` unchanged.
+        list[Requirement],  # type: ignore[arg-type]
         trace,
     )
     return list(result)
