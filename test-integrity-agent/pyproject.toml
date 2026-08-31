@@ -1,0 +1,90 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "test-integrity-agent"
+version = "0.1.0"
+description = "Requirement-directed mutation testing: does your test suite actually catch violations of your written requirements?"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Adil" }]
+keywords = [
+    "testing", "mutation-testing", "requirements", "test-quality",
+    "coverage", "anthropic", "claude", "llm", "qa",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+    "Typing :: Typed",
+]
+dependencies = [
+    "anthropic>=0.40",
+    "typer>=0.12",
+    "rich>=13.7",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-timeout>=2.3",
+    "mypy>=1.10",
+    "ruff>=0.5",
+    "types-PyYAML",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-org/test-integrity-agent"
+Source = "https://github.com/your-org/test-integrity-agent"
+Issues = "https://github.com/your-org/test-integrity-agent/issues"
+
+[project.scripts]
+tia = "test_integrity_agent.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/test_integrity_agent"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/", "tests/", "README.md", "LICENSE"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
+markers = ["timeout: per-test wall-clock limit (needs pytest-timeout)"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+# SIM105: contextlib.suppress reads worse than try/except/pass in hot paths
+# and hides which call is allowed to fail. SIM905: the stopword block is a
+# readable prose list, not a literal we want exploded over 40 lines.
+ignore = ["E501", "SIM105", "SIM905"]
+
+[tool.ruff.lint.per-file-ignores]
+# Typer's documented API is a call in the argument default.
+"src/test_integrity_agent/cli.py" = ["B008"]
+
+[tool.mypy]
+# The bundled example repo is fixture data for the tool to scan, not library
+# code -- it is deliberately written the way an ordinary project is written.
+exclude = "src/test_integrity_agent/example_repo/"
+python_version = "3.10"
+strict = true
+warn_unused_ignores = false
+ignore_missing_imports = true

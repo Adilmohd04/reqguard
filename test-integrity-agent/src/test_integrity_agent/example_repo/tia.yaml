@@ -1,0 +1,12 @@
+# tia.yaml for the bundled example repository.
+requirements:
+  - REQUIREMENTS.md
+source_paths:
+  - src
+test_command: python -m pytest -q
+timeout: 60
+mutants_per_req: 3
+workers: 4
+model: claude-sonnet-4-6
+cache_dir: .tia_cache
+fail_on_survivor: true
