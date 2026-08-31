@@ -107,6 +107,10 @@ rate**.
 > unless `reqguard evaluate` produced it from committed artifacts. The
 > placeholders stay placeholders until a real run replaces them.
 
+The version-by-version record of what was tried, what the evidence showed,
+and what was kept or dropped as a result — the required **Improvement
+Changelog** — is **[`CHANGELOG.md`](CHANGELOG.md)**.
+
 ## Validated on real code, not just the benchmark
 
 A perfect score on a self-designed benchmark is a fair thing to be
@@ -125,6 +129,12 @@ inclusive comparison may be entirely deliberate. What's demonstrated is
 narrower: a real, executable coverage gap, found and closed, in code
 this project never designed around.) ReqGuard then wrote and verified a
 test for it.
+
+Every agent trajectory this project produced — this run, the killer case
+(offline replay and a real live run), the baseline arm's confidently-wrong
+verdict, and the coding agents that built ReqGuard itself — is in
+**[`trajectories/`](trajectories/)**, raw JSONL alongside a readable
+narrative render for each.
 
 ## Reproduce
 
@@ -230,3 +240,12 @@ code, not the tool. That's precisely the failure mode ReqGuard exists to
 catch in other people's code — a green result that doesn't mean what it
 claims to mean — and it's a fair reminder that the discipline has to apply to
 the tool itself first, not just the code it's checking.
+
+---
+
+The full story — every provider swap, every real bug found and fixed, as it
+happened rather than reconstructed after the fact — is in
+**[`COLLAB.md`](COLLAB.md)**. The version history is
+**[`CHANGELOG.md`](CHANGELOG.md)**. Raw evidence is in
+**[`trajectories/`](trajectories/)**. A slide-form pitch is
+**[`ReqGuardpitch.pptx`](ReqGuardpitch.pptx)**.
