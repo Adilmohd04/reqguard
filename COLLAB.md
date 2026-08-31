@@ -1124,4 +1124,79 @@ it's an unaddressed inconsistency.
 **Not touched:** `CHANGELOG.md` (yours). No code, no other docs this session —
 this entry is purely the handoff you asked for.
 
+### 2026-08-31 · terminal · session 15 — three more live-found bugs in the fallback chain, closed the zero-coverage gap behind them
+
+Picked up session 12/13's fallback chain to run the 4-requirement PyJWT
+discrimination test the reviewer critique asked for (REQ-01 expiration +
+REQ-02 signature + REQ-03 nbf + REQ-04 algorithm confusion, written into
+`../pyjwt-test/requirements.md`). Every attempt so far has failed — but for
+real external reasons, verified live, not a logic bug left unfixed:
+
+**Bug 1 — the sticky `_preferred_index` (fixed, `fc53fe1`).** `_call()` used
+to advance one shared index and never revisit an earlier provider. Reproduced
+directly: Conduit answered fine standalone, but a real multi-requirement
+`analyze` kept failing all the way to OpenRouter's empty balance because an
+earlier call in the same process had already ratcheted past Conduit. Fixed
+by making every `_call()` search the full chain fresh, `_preferred_index` as
+a starting hint only.
+
+**Bug 2 — swallowed `pydantic.ValidationError` (fixed, `cb3c0ac`).** Conduit
+returned HTTP 200 with a plain-text body instead of JSON for a
+structured-output call. `except openai.APIStatusError` didn't catch that —
+it's not an HTTP-status failure, it's a 200 with garbage content. Broadened
+the except clause.
+
+**Bug 3 — no in-place retry on transient 429/5xx (fixed, `e357df3`).** With
+both of the above fixed, a real run still failed: all three providers erred
+on the SAME call for three different reasons at once — aerolink's real
+$5/5-hour cap (exhausted from a day of probing), OpenRouter's real credit
+shortfall (can afford ~1862 of the 8000 `max_tokens` requested), and a
+Conduit `503` whose own body said *"Retry the last turn; your conversation
+and tool state are preserved."* The `openai` SDK's own internal retries
+didn't ride that out. `_call()` now retries in place (2s, then 5s) on
+429/5xx before moving to the next provider — never on 402/403, which aren't
+transient and would just burn the backoff window before reaching a provider
+that can actually answer.
+
+**The gap behind all three:** every one of these shipped live with ZERO
+automated coverage. Every existing stage test goes through the `fake_client`
+override (`client._client`), which bypasses the provider chain entirely —
+there was no test that could have caught any of this before it hit a real
+run. Added `tests/unit/test_client_fallback.py`: 8 tests against a fully
+faked `_PROVIDER_BUILDERS` (no key, no network) pinning down the
+full-chain-wraps-around behavior, the ValidationError fallthrough, the
+transient-retry recover/give-up/never-on-402 behavior, and the two terminal
+error messages. Also fixed `tools/registry.py`'s module docstring, which
+still described the Gemini-era automatic-dispatch design though the code
+beneath it has been OpenAI-style `{schema, impl}` pairs since the OpenRouter
+migration — found while reading the file end to end looking for exactly this
+kind of drift. Verified: full suite **222/4/0** (214 + 8 new).
+
+**Current state, confirmed multiple ways (full pipeline runs, a standalone
+probe, and a per-provider debug trace) as of ~08:35 UTC:** all three
+providers are down at once — aerolink capped, OpenRouter underfunded,
+Conduit on a saturated free shared tier (`"Free shared capacity is busy.
+Please pause briefly and continue."`, still 429 after a 5-minute cool-down
+and after a later standalone re-check). The fallback/retry code is behaving
+correctly on every attempt; there's nothing left to fix in `client.py` for
+this — it's external capacity, confirmed three independent ways. Human
+(Adil) says Conduit needs about an hour before it's testable again. Not
+blocking the rest of the submission: the single-requirement PyJWT trajectory
+from session 13 and the 18-case benchmark are both real, already committed,
+and don't depend on this run landing.
+
+**Aside for the Supervisor, found while reading `crew/tasks.yaml`:** B3–B6
+are marked `status: todo`, but their gates all pass right now
+(`pytest tests/integration/test_stages.py -k "investigator or planner or
+repairer or baseline" -q` → 9 passed) and the acceptance criteria under B1/B2
+still describe the pre-migration Anthropic design (`anthropic.Anthropic()`,
+`claude-opus-5`, `thinking={'type':'adaptive'}`, `cache_control`) rather than
+the current OpenAI-compatible chain. Not editing `crew/tasks.yaml` myself —
+it's yours (`owned_by_S`) — flagging so the board reflects reality whenever
+you next touch it.
+
+**Not touched:** anything outside `owned_by_B` — `crew/tasks.yaml`,
+`CHANGELOG.md`, `README.md`, `docker-compose.yml`, `docs/REPRODUCTION.md` all
+show uncommitted changes in `git status` that aren't mine; left alone.
+
 ### <next entry>
