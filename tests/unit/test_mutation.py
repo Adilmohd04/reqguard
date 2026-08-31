@@ -192,3 +192,81 @@ def test_gates_constant_has_six_gates():
     assert "in_sandbox" in gate_names
     assert "small_diff" in gate_names
     assert "not_a_noop" in gate_names
+
+
+# ── whitespace-tolerant re-anchoring (the itsdangerous fix) ──────────────────
+# The model sometimes emits an original_snippet that is semantically the exact
+# source block but with wrong leading indentation, so an exact-match anchor
+# gets 0 hits and the mutation is rejected (INCONCLUSIVE). reanchor() recovers
+# the true block when it differs only in indentation, WITHOUT weakening the
+# uniqueness guarantee.
+
+def test_reanchor_recovers_overindented_snippet_and_applies(tmp_path):
+    """An over-indented original_snippet (the real itsdangerous failure) is
+    recovered from source and the mutation applies successfully."""
+    source = (
+        "def verify(key, value, sig):\n"
+        "    for secret_key in keys:\n"
+        "        if algo.verify(key, value, sig):\n"
+        "            return True\n"
+        "    return False\n"
+    )
+    _sandbox_with_file(tmp_path, "src/signer.py", source)
+    # Model over-indents both lines (as gpt-5.6-terra did on itsdangerous).
+    overindented_original = (
+        "                if algo.verify(key, value, sig):\n"
+        "                    return True"
+    )
+    overindented_mutated = (
+        "                if not algo.verify(key, value, sig):\n"
+        "                    return True"
+    )
+    spec = _make_spec(
+        "src/signer.py", overindented_original, overindented_mutated,
+        mutation_type=MutationType.BOOLEAN_INVERSION,
+    )
+    diff = apply_with_gates(spec, str(tmp_path), max_diff_lines=15)
+    # Applied: the real (correctly-indented) block is now inverted in the file.
+    written = (tmp_path / "src" / "signer.py").read_text(encoding="utf-8")
+    assert "if not algo.verify(key, value, sig):" in written
+    assert "@@" in diff  # a real unified diff was produced
+
+
+def test_reanchor_still_rejects_when_normalized_match_is_ambiguous(tmp_path):
+    """If the normalized block appears more than once, re-anchoring must NOT
+    pick one — uniqueness safety is preserved, so it falls through to a
+    clean anchor_unique rejection."""
+    source = (
+        "def a():\n"
+        "    if check(x):\n"
+        "        return True\n"
+        "def b():\n"
+        "    if check(x):\n"
+        "        return True\n"
+    )
+    _sandbox_with_file(tmp_path, "src/service.py", source)
+    overindented = "            if check(x):\n                return True"
+    spec = _make_spec(
+        "src/service.py", overindented, "            if not check(x):\n                return True",
+        mutation_type=MutationType.BOOLEAN_INVERSION,
+    )
+    with pytest.raises(MutationRejected) as exc:
+        apply_with_gates(spec, str(tmp_path), max_diff_lines=15)
+    assert exc.value.gate == "anchor_unique"
+    # Source untouched.
+    assert (tmp_path / "src" / "service.py").read_text(encoding="utf-8") == source
+
+
+def test_reanchor_still_rejects_a_genuinely_absent_snippet(tmp_path):
+    """A snippet whose content isn't in the source at all (not just mis-indented)
+    is still rejected — re-anchoring recovers indentation, not meaning."""
+    _sandbox_with_file(tmp_path, "src/service.py", "def foo():\n    return 1\n")
+    spec = _make_spec(
+        "src/service.py",
+        "        if totally.different(thing):\n            return None",
+        "        if not totally.different(thing):\n            return None",
+        mutation_type=MutationType.BOOLEAN_INVERSION,
+    )
+    with pytest.raises(MutationRejected) as exc:
+        apply_with_gates(spec, str(tmp_path), max_diff_lines=15)
+    assert exc.value.gate == "anchor_unique"

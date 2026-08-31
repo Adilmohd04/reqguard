@@ -12,20 +12,25 @@ services:
       - ./reqguard-report:/app/reqguard-report
     command: ["benchmark", "--arm", "both", "--replay", "benchmarks/replay"]
 
-  # Opt-in, spends real API budget -- requires ANTHROPIC_API_KEY on the host.
-  # Excluded from a bare `docker compose up` via the "live" profile so a
-  # judge running the default command never triggers a paid call by
-  # accident.
+  # Opt-in, spends real API budget -- requires YOUR OWN OpenAI-compatible key
+  # on the host (ReqGuard ships none). Excluded from a bare `docker compose up`
+  # via the "live" profile so a judge running the default command never
+  # triggers a paid call by accident.
   #
+  #   export AEROLINK_API_KEY=...   # or CONDUIT_API_KEY (+CONDUIT_BASE_URL) / OPENROUTER_API_KEY
   #   docker compose --profile live run benchmark-live
   #
   benchmark-live:
     build: .
     profiles: ["live"]
     environment:
-      # Passed through from the host -- never baked into the image, never committed.
-      - ANTHROPIC_API_KEY
-      - ANTHROPIC_AUTH_TOKEN
+      # Passed through from the host -- never baked into the image, never
+      # committed. Set whichever one you have; the client tries them in order
+      # (aerolink -> Conduit -> OpenRouter) and fails over on a provider error.
+      - AEROLINK_API_KEY
+      - CONDUIT_API_KEY
+      - CONDUIT_BASE_URL
+      - OPENROUTER_API_KEY
     volumes:
       - ./benchmarks/results:/app/benchmarks/results
       - ./reqguard-report:/app/reqguard-report

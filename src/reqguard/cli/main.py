@@ -15,6 +15,7 @@ Reference: docs/03-implementation-manual.md sections 13, 20.
 from __future__ import annotations
 
 import json
+import contextlib
 import shutil
 import sys
 from contextlib import contextmanager
@@ -184,6 +185,12 @@ def apply(
     requirement: str = typer.Option(..., help="Requirement id whose verified repair to apply."),
     report_dir: Path = typer.Option(Path("./reqguard-report"), help="Report directory."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
+    prove: bool = typer.Option(
+        False,
+        "--prove",
+        help="After writing the repair, run the repo's own test suite to prove the "
+        "gap is closed and nothing else broke. Rolls the write back if it isn't.",
+    ),
 ) -> None:
     """Write ONE verified repair test into the repo. The only write path (section 13.3)."""
     findings_path = report_dir / "findings.json"
@@ -221,12 +228,68 @@ def apply(
     _echo(f"Will write:  {repair['test_path']}   (new file)")
     _echo("  ✓ verified: passes against current code")
     _echo("  ✓ verified: fails when the mutation is applied")
+    if prove:
+        _echo("  → will then run the repo's suite to prove the gap is closed")
     if not yes and not typer.confirm("Proceed?"):
         raise typer.Exit(1)
 
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(repair["test_source"], encoding="utf-8")
     _echo(f"✓ wrote {target}")
+
+    if not prove:
+        return
+
+    # --prove: demonstrate on the REAL repo (not just the sandbox report) that
+    # the newly-written test passes against the current, correct code and the
+    # suite as a whole is still green. This is what turns "trust the report"
+    # into "watch the gap close." If the suite does not pass, the repo must not
+    # be left in a broken state -- roll the write back and fail loudly.
+    from reqguard.tools.test_runner import run_tests_with_config
+    from reqguard.models import RunStatus
+
+    _echo("\nProving on the real repository...")
+    try:
+        cfg = load_config(repo)
+    except ConfigError as exc:
+        _rollback(target, f"could not load config to run the suite: {exc}")
+        raise typer.Exit(1)
+
+    outcome = run_tests_with_config(repo.resolve(), cfg)
+
+    if outcome.status is not RunStatus.OK or outcome.exit_code != 0:
+        detail = outcome.reason or f"exit {outcome.exit_code}, {outcome.failed} failed"
+        _rollback(
+            target,
+            f"repo suite is not green with the repair present ({detail})",
+        )
+        _err(
+            "  the repair was NOT kept — your repository is unchanged. "
+            "This means the verified sandbox result did not reproduce here "
+            "(different environment, deps, or config)."
+        )
+        raise typer.Exit(1)
+
+    _echo(f"  ✓ repo suite green with the repair: {outcome.passed} passed, "
+          f"{outcome.failed} failed, {outcome.skipped} skipped (exit 0)")
+    _echo(f"✓ proven: {requirement} is now protected by an executable test, "
+          "and the rest of the suite still passes.")
+
+
+def _rollback(target: Path, why: str) -> None:
+    """Remove a just-written repair file after a failed --prove, leaving the
+    repo exactly as it was. Prunes now-empty parent dirs we may have created."""
+    with contextlib.suppress(OSError):
+        target.unlink()
+    # Best-effort cleanup of empty dirs we created (e.g. tests/nested/deep).
+    parent = target.parent
+    while parent != parent.parent:
+        try:
+            parent.rmdir()  # only succeeds if empty
+        except OSError:
+            break
+        parent = parent.parent
+    _err(f"✗ {why}")
 
 
 @app.command()
