@@ -130,13 +130,18 @@ def _build_aerolink() -> tuple[OpenAI, str] | None:
     key = os.environ.get("AEROLINK_API_KEY")
     if not key:
         return None
+    # Model is env-configurable (aerolink cgapi hosts gpt-5.6-luna/sol/terra
+    # and FreeModel); default is terra. Set AEROLINK_MODEL to override without
+    # a code edit.
+    model = os.environ.get("AEROLINK_MODEL", "gpt-5.6-terra")
+    base = os.environ.get("AEROLINK_BASE_URL", "https://cgapi.aerolink.lat/v1")
     return (
         OpenAI(
-            base_url="https://cgapi.aerolink.lat/v1",
+            base_url=base,
             api_key=key,
             default_headers={"User-Agent": "curl/8.0"},
         ),
-        "gpt-5.6-sol",
+        model,
     )
 
 
@@ -151,19 +156,32 @@ _PROVIDER_BUILDERS: list[tuple[str, Any]] = [
 # through it well before a 4-requirement analyze completes. `analyze` (1 call,
 # medium effort, no tools) and `investigate` (the highest call-volume stage --
 # up to _MAX_TOOL_ROUNDS calls PER requirement) are the two places that cost
-# the most for the least reasoning depth required. `gpt-5.6-terra` was
-# reprobed fresh against the new key and passed BOTH structured output and
-# tool calling cleanly (it had failed structured output on an earlier key --
-# real, re-verified, not assumed to still hold). Deliberately NOT applied to
-# `plan` (xhigh, "the highest-leverage stage in the system" -- mutation_planner
-# docstring), `repair` (must produce an actually-correct passing+killing test),
-# or `baseline` (must stay on the same footing as ReqGuard's own top-effort
-# stage for a fair comparison, section 16.2) -- those three get only a single
-# quick tool-calling+structured probe's worth of confidence on terra, not
-# enough to risk the stages where being wrong actually costs correctness.
+# the most for the least reasoning depth required, so they get `gpt-5.6-terra`
+# (reprobed fresh against the new key, passed both structured output and tool
+# calling cleanly).
+#
+# `plan`, `repair`, and `baseline` are pinned back to `gpt-5.6-sol` HERE,
+# explicitly -- not just left out of this map -- because `_build_aerolink`'s
+# own default model changed to terra too (env-configurable, `AEROLINK_MODEL`).
+# Leaving them unlisted would silently pull them onto terra along with
+# everything else, defeating the whole point of keeping the correctness-
+# critical stages on the better-tested model. Found live, real evidence, not
+# hypothetical: a `plan` call on terra against `itsdangerous` proposed an
+# `original_snippet` with 20 spaces of indentation where the real file had
+# 12 -- content right, whitespace wrong -- correctly rejected by Track A's
+# `anchor_unique` gate (INCONCLUSIVE, not a silent corruption or a guess).
+# `plan` is "the highest-leverage stage in the system" (mutation_planner's
+# own docstring) and needs byte-exact anchors to work at all; `repair` must
+# produce an actually-correct passing+killing test; `baseline` must stay on
+# the same footing as ReqGuard's own top-effort stage for a fair comparison
+# (section 16.2). None of the three can absorb a whitespace-precision miss
+# the way analyze/investigate can.
 _AEROLINK_MODEL_OVERRIDE: dict[str, str] = {
     "analyze": "gpt-5.6-terra",
     "investigate": "gpt-5.6-terra",
+    "plan": "gpt-5.6-sol",
+    "repair": "gpt-5.6-sol",
+    "baseline": "gpt-5.6-sol",
 }
 
 # `_client`/`_active_model` are a TEST-ONLY override hook --

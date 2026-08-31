@@ -243,16 +243,25 @@ def test_aerolink_uses_the_override_model_for_analyze_and_investigate(monkeypatc
     assert queue.calls_kwargs[-1]["model"] == "gpt-5.6-terra"
 
 
-def test_aerolink_uses_the_default_model_for_plan_repair_and_baseline(monkeypatch):
-    """The correctness- and fairness-critical stages stay on gpt-5.6-sol --
-    terra only has a single quick probe's worth of confidence behind it,
-    not enough to risk plan/repair/baseline on."""
+def test_aerolink_pins_plan_repair_and_baseline_to_sol_explicitly(monkeypatch):
+    """The correctness- and fairness-critical stages must land on gpt-5.6-sol
+    -- pinned EXPLICITLY in the override map, not merely left out of it.
+    Regression for a real live bug (2026-08-31): _build_aerolink's own
+    default model changed from sol to terra (env-configurable), which
+    silently pulled plan along with it too, since the override map only
+    ever positively routed analyze/investigate TO terra and never pinned
+    plan/repair/baseline back. Caught live: a `plan` call on terra against
+    itsdangerous proposed an original_snippet with the wrong indentation
+    (20 spaces vs the real file's 12), rejected by the anchor_unique gate.
+    Asserting the literal 'gpt-5.6-sol' string here (not just 'whatever the
+    fake's default is') is the point -- a fake with a different default
+    wouldn't have caught the original regression."""
     for stage in ("plan", "repair", "baseline"):
         monkeypatch.setattr(C, "_provider_cache", {})  # each iteration's provider is a fresh fake
         resp = object()
         (queue,) = _install(monkeypatch, ("aerolink", [resp]))
         C._call("chat.completions.create", stage)
-        assert queue.calls_kwargs[-1]["model"] == "model-aerolink", stage
+        assert queue.calls_kwargs[-1]["model"] == "gpt-5.6-sol", stage
 
 
 def test_the_override_is_specific_to_aerolink_not_every_provider(monkeypatch):
