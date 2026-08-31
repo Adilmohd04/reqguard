@@ -70,7 +70,19 @@ from reqguard.agent import policy
 from reqguard.agent.policy import BASE_URL, MAX_TOKENS, MODEL
 
 _RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
-_RETRY_BACKOFF_SECONDS = (2.0, 5.0)
+# Shrunk from (2.0, 5.0), 2026-08-31: real evidence a live multi-requirement
+# run pays this schedule on EVERY call that lands on a degraded provider, and
+# today's Conduit outage was sustained (hours), not a seconds-scale blip --
+# every single retry against it today failed, none ever recovered mid-wait.
+# Measured live: a healthy single-requirement run was 15 calls in ~2 min
+# (~8s/call); a run fighting a degraded Conduit was ~19 calls in 27 min
+# (~85s/call, ~10x slower) before still failing. The full (2.0, 5.0) schedule
+# (up to 7s of pure sleep PER degraded provider PER call, on top of the
+# actual request latency) was a real, measured, evidence-backed cost with
+# zero observed payoff against a sustained outage -- one short retry still
+# catches a genuine few-second blip without compounding into minutes across
+# a multi-call run.
+_RETRY_BACKOFF_SECONDS = (1.0,)
 
 __all__ = ["structured", "run_with_tools", "Trace"]
 
