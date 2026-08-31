@@ -134,6 +134,26 @@ _PROVIDER_BUILDERS: list[tuple[str, Any]] = [
     ("openrouter", _build_openrouter),
 ]
 
+# aerolink's real $5/5-hour cap is the binding constraint on a live run (found
+# live, repeatedly, 2026-08-31) -- `gpt-5.6-sol` for every single call burns
+# through it well before a 4-requirement analyze completes. `analyze` (1 call,
+# medium effort, no tools) and `investigate` (the highest call-volume stage --
+# up to _MAX_TOOL_ROUNDS calls PER requirement) are the two places that cost
+# the most for the least reasoning depth required. `gpt-5.6-terra` was
+# reprobed fresh against the new key and passed BOTH structured output and
+# tool calling cleanly (it had failed structured output on an earlier key --
+# real, re-verified, not assumed to still hold). Deliberately NOT applied to
+# `plan` (xhigh, "the highest-leverage stage in the system" -- mutation_planner
+# docstring), `repair` (must produce an actually-correct passing+killing test),
+# or `baseline` (must stay on the same footing as ReqGuard's own top-effort
+# stage for a fair comparison, section 16.2) -- those three get only a single
+# quick tool-calling+structured probe's worth of confidence on terra, not
+# enough to risk the stages where being wrong actually costs correctness.
+_AEROLINK_MODEL_OVERRIDE: dict[str, str] = {
+    "analyze": "gpt-5.6-terra",
+    "investigate": "gpt-5.6-terra",
+}
+
 # `_client`/`_active_model` are a TEST-ONLY override hook --
 # tests/integration/test_stages.py's fake_client fixture monkeypatches
 # `_client` directly, and `_call()` below uses it as-is, bypassing the
@@ -311,6 +331,8 @@ def _call(method_path: str, stage: str, **kwargs: Any) -> Any:
         tried_any = True
         name, _builder = _PROVIDER_BUILDERS[idx]
         client, model = result
+        if name == "aerolink":
+            model = _AEROLINK_MODEL_OVERRIDE.get(stage, model)
         fn = client
         for part in method_path.split("."):
             fn = getattr(fn, part)

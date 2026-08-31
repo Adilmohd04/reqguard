@@ -68,9 +68,11 @@ class _Queue:
     def __init__(self, outcomes: list) -> None:
         self._outcomes = list(outcomes)
         self.n_calls = 0
+        self.calls_kwargs: list[dict] = []
 
-    def __call__(self, **_kwargs):
+    def __call__(self, **kwargs):
         self.n_calls += 1
+        self.calls_kwargs.append(kwargs)
         if not self._outcomes:
             raise AssertionError("fake provider called more times than scripted")
         outcome = self._outcomes.pop(0)
@@ -223,6 +225,43 @@ def test_transient_retry_gives_up_after_exhausting_the_backoff_schedule(monkeypa
     with pytest.raises(openai.APIStatusError):
         C._call_with_transient_retry(queue, {}, "conduit")
     assert queue.n_calls == n
+
+
+# ── aerolink per-stage model override ───────────────────────────────────
+
+
+def test_aerolink_uses_the_override_model_for_analyze_and_investigate(monkeypatch):
+    """Real cap-conservation fix, 2026-08-31: gpt-5.6-sol on every single
+    call burns through aerolink's $5/5-hour cap before a multi-requirement
+    analyze completes. analyze (1 call) and investigate (the highest
+    call-volume stage) route to gpt-5.6-terra instead once terra was
+    reprobed and confirmed to pass both structured output and tool calling
+    on the current key."""
+    resp = object()
+    (queue,) = _install(monkeypatch, ("aerolink", [resp]))
+    C._call("chat.completions.create", "analyze")
+    assert queue.calls_kwargs[-1]["model"] == "gpt-5.6-terra"
+
+
+def test_aerolink_uses_the_default_model_for_plan_repair_and_baseline(monkeypatch):
+    """The correctness- and fairness-critical stages stay on gpt-5.6-sol --
+    terra only has a single quick probe's worth of confidence behind it,
+    not enough to risk plan/repair/baseline on."""
+    for stage in ("plan", "repair", "baseline"):
+        monkeypatch.setattr(C, "_provider_cache", {})  # each iteration's provider is a fresh fake
+        resp = object()
+        (queue,) = _install(monkeypatch, ("aerolink", [resp]))
+        C._call("chat.completions.create", stage)
+        assert queue.calls_kwargs[-1]["model"] == "model-aerolink", stage
+
+
+def test_the_override_is_specific_to_aerolink_not_every_provider(monkeypatch):
+    """conduit/openrouter always use their own fixed MODEL constant --
+    the override map must never leak onto a provider it wasn't written for."""
+    resp = object()
+    (queue,) = _install(monkeypatch, ("conduit", [resp]))
+    C._call("chat.completions.create", "analyze")
+    assert queue.calls_kwargs[-1]["model"] == "model-conduit"
 
 
 def test_transient_retry_never_retries_a_credit_or_auth_wall(monkeypatch):
