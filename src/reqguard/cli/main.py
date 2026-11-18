@@ -10,6 +10,8 @@ Reference: docs/03-implementation-manual.md sections 13, 20.
     reqguard evaluate
     reqguard report
     reqguard doctor --case benchmarks/case01-cancelled-order-shipping
+    reqguard install kiro|codex [--user]    # MCP server + skill for the IDE agent
+    reqguard mcp                            # serve MCP over stdio (IDEs launch this)
 """
 
 from __future__ import annotations
@@ -401,6 +403,41 @@ def trajectory(
     except FileNotFoundError as exc:
         _err(f"✗ {exc}")
         raise typer.Exit(2)
+
+
+@app.command()
+def install(
+    ide: str = typer.Argument(..., help="kiro | codex"),
+    project: Path = typer.Option(Path("."), help="Project to install into."),
+    user: bool = typer.Option(False, "--user", help="Install for every project (home directory)."),
+) -> None:
+    """Register ReqGuard as an MCP server + skill in Kiro or Codex. Idempotent; merges, never clobbers."""
+    from reqguard.integrations.installer import SUPPORTED_IDES
+    from reqguard.integrations.installer import install as do_install
+
+    if ide not in SUPPORTED_IDES:
+        _err(f"✗ IDE must be one of: {', '.join(SUPPORTED_IDES)}")
+        raise typer.Exit(2)
+    try:
+        result = do_install(ide, project=project, user=user)
+    except (ValueError, OSError) as exc:
+        _err(f"✗ {exc}")
+        raise typer.Exit(1)
+    for path in result.written:
+        _echo(f"  ✓ wrote {path}")
+    for path in result.unchanged:
+        _echo(f"  · unchanged {path}")
+    for note in result.notes:
+        _echo(f"  → {note}")
+    _echo(f"✓ ReqGuard installed for {ide}")
+
+
+@app.command()
+def mcp() -> None:
+    """Serve ReqGuard over MCP (stdio). IDEs launch this; you rarely run it by hand."""
+    from reqguard.integrations.mcp_server import main as serve
+
+    raise typer.Exit(serve())
 
 
 def main(argv: list[str] | None = None) -> int:  # pragma: no cover - console entry

@@ -11,13 +11,18 @@ dependencies = [
     "rich>=13.7",
     "pyyaml>=6.0",
     "jinja2>=3.1",
+    # Runtime, not dev: run_tests always passes --json-report, so a user project
+    # without the plugin gets pytest exit 4 and every run is ENVIRONMENT_ERROR.
+    "pytest>=8",
+    "pytest-json-report>=1.5",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-json-report>=1.5", "ruff", "mypy"]
+dev = ["ruff", "mypy"]
 
 [project.scripts]
 reqguard = "reqguard.cli.main:app"
+reqguard-mcp = "reqguard.integrations.mcp_server:main"
 
 [build-system]
 requires = ["hatchling"]

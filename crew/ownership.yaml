@@ -66,6 +66,7 @@ owned_by_S:
   - src/reqguard/__init__.py
   - src/reqguard/agent/orchestrator.py    # wires A+B+C; written LAST, after merge
   - src/reqguard/cli/main.py              # wires everything; written LAST
+  - src/reqguard/integrations/**          # MCP server + Kiro/Codex installer + SKILL.md
   - pyproject.toml
   - crew/**
   - docs/**

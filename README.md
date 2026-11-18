@@ -87,6 +87,130 @@ corpus, `doctor`, CI — runs with **no key and no spend**.
 `reqguard.yaml` is optional — every field has a default. Project context goes
 in an optional `REQGUARD.md` at the repo root.
 
+## Add ReqGuard to your own project
+
+ReqGuard runs *against* a repository from the outside — it is a CLI you point at
+a project, not a library you import or a dependency you add to
+`pyproject.toml`. Nothing of ReqGuard ends up in your shipped code; the only
+thing it ever writes into your repo is a single repair test, and only when you
+run `apply`.
+
+**1 — install the CLI** (Python 3.12+; isolated, so it never touches your
+project's dependencies):
+
+```bash
+uv tool install "git+https://github.com/Adilmohd04/reqguard.git"
+#   or, without uv:
+pipx install "git+https://github.com/Adilmohd04/reqguard.git"
+#   or into an existing venv:
+pip install "git+https://github.com/Adilmohd04/reqguard.git"
+```
+
+**2 — give it a model key.** ReqGuard ships no key or credits. The client is
+OpenAI-wire, so any OpenAI-compatible endpoint works. Set one env var (or drop a
+`.env` in your repo root — it is auto-loaded, and never overrides a real shell
+var):
+
+```bash
+export AEROLINK_API_KEY=...           # aerolink cgapi
+#   or: export CONDUIT_API_KEY=...    (+ optional CONDUIT_BASE_URL)
+#   or: export OPENROUTER_API_KEY=... (openrouter.ai)
+#   or point at any other OpenAI-compatible gateway via *_BASE_URL
+```
+
+If several are set, the client tries them in order (aerolink → Conduit →
+OpenRouter) and fails over on a provider error. Use a genuinely tool-competent
+model — it must do both structured output *and* multi-round tool use; most
+free-tier models do neither reliably.
+
+**3 — write your requirements.** Create `requirements.md` at your repo root, one
+requirement per line, each with a stable id:
+
+```markdown
+# Requirements
+
+REQ-01: A refund may never exceed the original charge amount.
+REQ-02: A session token must be rejected once it is past its expiry instant.
+REQ-03: An order with any unshipped item must never be reported as "completed".
+```
+
+**4 — (optional) `reqguard.yaml`** if your layout isn't the default
+(`src/` sources, `pytest`, requirements at `requirements.md`):
+
+```yaml
+source_paths: ["mypkg/"]
+testing:
+  command: "pytest -q"
+  timeout_seconds: 600
+requirements:
+  path: "docs/requirements.md"
+```
+
+**5 — run it:**
+
+```bash
+cd your-project
+
+reqguard analyze .                         # every requirement → ./reqguard-report/
+reqguard analyze . --requirement REQ-02    # just one
+reqguard analyze . --requirement REQ-02 --dry-run   # stages 1–3, plan only, no suite run
+
+# If a gap was found and a repair verified, write + prove it on your real suite:
+reqguard apply --requirement REQ-02 --prove --yes
+```
+
+`analyze` never modifies your repo. `apply` is the only write path: it refuses
+unverified repairs, never overwrites an existing file, and with `--prove` it
+reruns *your* suite and rolls the write back if it isn't green.
+
+**In CI** (offline, no key — gate on the committed report, or run live against a
+secret key on protected branches):
+
+```yaml
+- run: uv tool install "git+https://github.com/Adilmohd04/reqguard.git"
+- run: reqguard analyze . --requirement REQ-02
+  env: { OPENROUTER_API_KEY: "${{ secrets.OPENROUTER_API_KEY }}" }
+```
+
+## Use ReqGuard from your IDE agent (Kiro, Codex, any MCP client)
+
+ReqGuard ships an MCP server and a skill, so the agent in your IDE can run it
+while you build. One command registers both:
+
+```bash
+cd your-project
+reqguard install kiro      # .kiro/settings/mcp.json + .kiro/skills/reqguard/SKILL.md
+reqguard install codex     # .codex/config.toml      + .agents/skills/reqguard/SKILL.md
+reqguard install codex --user   # same, but in your home dir, for every project
+```
+
+Re-running it is safe. Existing MCP configs are merged, never clobbered, and no
+keys are written. Reconnect MCP servers in Kiro, or restart Codex. Then ask the
+agent something like *"does my test suite actually protect REQ-02?"* The skill
+teaches it the workflow: check setup, analyze, report, and apply a repair only
+after you approve.
+
+| MCP tool | What it does | Model calls | Writes |
+|---|---|---|---|
+| `reqguard_check_setup` | requirements file, green suite (in a sandbox), key names present | no | none |
+| `reqguard_init` | scaffold `reqguard.yaml` + `requirements.md` | no | new files only |
+| `reqguard_analyze` | the full pipeline; long runs return a `run_id` | yes | `reqguard-report/` |
+| `reqguard_status` | poll a running analysis | no | none |
+| `reqguard_findings` | verdicts; per requirement: mutation diff + proposed test | no | none |
+| `reqguard_apply_repair` | write one *verified* repair test; needs `confirm: true` | no | one new test file |
+
+`apply_repair` is gated three times. The agent must pass `confirm: true`, which
+the skill only allows after you say yes. Kiro's config auto-approves only the
+read-only tools, so the IDE also prompts you. And `reqguard apply` itself
+refuses unverified repairs and overwrites. The server runs over stdio and opens
+no network port.
+
+**The interpreter matters.** `install` points the MCP server at the Python it
+runs under, and pytest runs with that interpreter unless `testing.command` says
+otherwise. Either run `reqguard install` from your project's venv, or set
+`testing.command` in `reqguard.yaml` to your venv's pytest. `reqguard_check_setup`
+tells you when imports fail for this reason.
+
 ## The experiment
 
 ReqGuard is measured against a **baseline** — the same model at the same effort
