@@ -20,9 +20,12 @@ written -- not from memory):
   `_PROVIDER_BUILDERS` (aerolink/conduit/openrouter). Constructed **lazily**
   and cached per-provider (`_resolve()`), so --replay/doctor/CI need no key
   at all -- same contract the Gemini port preserved.
-- Model: pinned in policy.py. A free model must support BOTH structured output
-  and tool calling; `nvidia/nemotron-3-super-120b-a12b:free` was verified to do
-  both. Many free models do neither -- do not swap the model without re-probing.
+- Model: pinned in policy.py (`nvidia/nemotron-3-ultra-550b-a55b:free`, moved
+  there 2026-11-18 after `gpt-5`'s free OpenRouter access ended -- see
+  policy.py for the full note). A free model must support BOTH structured
+  output and tool calling. Many free models do neither -- do not swap the
+  model without re-probing, and re-check https://openrouter.ai/api/v1/models
+  first, since free-tier pricing and availability both drift over time.
 - Structured output: `client.beta.chat.completions.parse(..., response_format=
   <BaseModel or list-wrapper>)`; the parsed instance is on
   `choices[0].message.parsed`. Top-level `list[Requirement]` is not a valid

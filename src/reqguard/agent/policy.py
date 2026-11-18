@@ -25,13 +25,19 @@ Effort = Literal["low", "medium", "high", "xhigh", "max"]
 # The Gemini free-tier key hit 429 RESOURCE_EXHAUSTED (no billing), so the
 # human directed a switch to OpenRouter's free models. OpenRouter is an
 # OpenAI-compatible gateway; BASE_URL points the `openai` SDK at it.
-# This model was VERIFIED by a probe (scratch_probe.py) to support BOTH
-# structured output and tool calling on the free tier -- most free models
-# support neither. `nvidia/nemotron-3-ultra-550b-a55b:free` also passed and is
-# the fallback. Do NOT swap the model without re-probing both capabilities, or
-# stages 2/5 (tools) or 1/3 (structured output) will break. Pinned to the exact
-# id -- no `-latest` alias that could move under us mid-project.
-MODEL: str = "gpt-5"
+#
+# Changed again 2026-11-18: `gpt-5` (bare id) was free on OpenRouter in
+# August but isn't any more -- confirmed live against
+# https://openrouter.ai/api/v1/models, `openai/gpt-5` now has real pricing,
+# and a real run hit a 402 ("requires more credits") on a $0-balance key.
+# Moved to the fallback this same comment already documented and the
+# original probe already verified for BOTH structured output and tool
+# calling: `nvidia/nemotron-3-ultra-550b-a55b:free`, confirmed free in that
+# same live models listing (1M context). Do NOT swap the model without
+# re-probing both capabilities, or stages 2/5 (tools) or 1/3 (structured
+# output) will break. Pinned to the exact id -- no `-latest` alias that
+# could move under us mid-project.
+MODEL: str = "nvidia/nemotron-3-ultra-550b-a55b:free"
 BASE_URL: str = "https://openrouter.ai/api/v1"
 
 # Non-streaming parse/tool-runner calls: keep the response under the SDK HTTP
@@ -75,5 +81,5 @@ def validate() -> None:
             "policy: baseline effort must be 'xhigh' -- the control arm gets the "
             "highest setting (manual section 16.2)"
         )
-    if MODEL != "gpt-5":
+    if MODEL != "nvidia/nemotron-3-ultra-550b-a55b:free":
         raise AssertionError(f"policy: unexpected model {MODEL!r}")
