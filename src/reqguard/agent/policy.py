@@ -53,8 +53,15 @@ MODEL: str = "nvidia/nemotron-3.5-super-vl:free"
 BASE_URL: str = "https://openrouter.ai/api/v1"
 
 # Non-streaming parse/tool-runner calls: keep the response under the SDK HTTP
-# timeout. 16k is the manual's figure (section 5.1).
-MAX_TOKENS: int = 8000
+# timeout. 16k is the manual's figure (section 5.1) -- restored 2026-11-18:
+# this had silently drifted to 8000 in a commit that was "Kiro's work
+# as-is, not editing its content" (COLLAB.md, 2026-08-30), never reviewed
+# against the manual. Reproduced live: a reasoning-heavy free model hit
+# `finish_reason == "length"` with completion_tokens == reasoning_tokens ==
+# 8000 -- it spent the ENTIRE budget on reasoning and never reached the
+# actual answer. Independent of which model is pinned above; halving this
+# silently starves any model that reasons before it answers.
+MAX_TOKENS: int = 16000
 
 STAGES: tuple[Stage, ...] = ("analyze", "investigate", "plan", "repair", "baseline")
 
