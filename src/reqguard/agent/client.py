@@ -117,7 +117,13 @@ def _build_conduit() -> tuple[OpenAI, str] | None:
     if not key:
         return None
     base = os.environ.get("CONDUIT_BASE_URL") or BASE_URL
-    return OpenAI(base_url=base, api_key=key), MODEL
+    # Model is env-configurable, same pattern as aerolink below: Conduit's
+    # model catalog is unrelated to OpenRouter's, so the shared free-tier
+    # MODEL constant (policy.py) almost certainly doesn't exist there. Set
+    # CONDUIT_MODEL to the exact id Conduit expects; falls back to MODEL
+    # only for a Conduit setup that happens to mirror OpenRouter's catalog.
+    model = os.environ.get("CONDUIT_MODEL", MODEL)
+    return OpenAI(base_url=base, api_key=key), model
 
 
 def _build_openrouter() -> tuple[OpenAI, str] | None:
