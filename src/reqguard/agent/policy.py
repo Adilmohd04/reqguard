@@ -26,18 +26,30 @@ Effort = Literal["low", "medium", "high", "xhigh", "max"]
 # human directed a switch to OpenRouter's free models. OpenRouter is an
 # OpenAI-compatible gateway; BASE_URL points the `openai` SDK at it.
 #
-# Changed again 2026-11-18: `gpt-5` (bare id) was free on OpenRouter in
-# August but isn't any more -- confirmed live against
+# Changed again 2026-11-18 (first pass): `gpt-5` (bare id) was free on
+# OpenRouter in August but isn't any more -- confirmed live against
 # https://openrouter.ai/api/v1/models, `openai/gpt-5` now has real pricing,
 # and a real run hit a 402 ("requires more credits") on a $0-balance key.
-# Moved to the fallback this same comment already documented and the
-# original probe already verified for BOTH structured output and tool
-# calling: `nvidia/nemotron-3-ultra-550b-a55b:free`, confirmed free in that
-# same live models listing (1M context). Do NOT swap the model without
-# re-probing both capabilities, or stages 2/5 (tools) or 1/3 (structured
+# Moved to `nvidia/nemotron-3-ultra-550b-a55b:free`.
+#
+# Changed again same day (second pass): that nemotron pin was itself flaky
+# on stage 1 (analyze) -- 3 real calls on the identical requirements.md,
+# same requirement filter, gave 3 found / 0 found / 0 found. Checked
+# https://openrouter.ai/api/v1/models again: this id's own
+# `supported_parameters` does NOT list structured-output support at all
+# (only `tools`) -- the prior comment's "verified for both" no longer
+# matches OpenRouter's current metadata for it, which explains calls
+# silently producing unparsable output instead of erroring. Moved to
+# `nvidia/nemotron-3.5-super-vl:free`: same vendor family, newer generation,
+# 1M context, and its `supported_parameters` DOES list both `tools` and
+# structured output right now. Not independently re-probed end-to-end with
+# a real key beyond that metadata check -- if THIS one also drops
+# structured-output support later, re-check the live models list before
+# assuming the pipeline itself is broken. Do NOT swap the model without
+# checking that listing first, or stages 2/5 (tools) or 1/3 (structured
 # output) will break. Pinned to the exact id -- no `-latest` alias that
 # could move under us mid-project.
-MODEL: str = "nvidia/nemotron-3-ultra-550b-a55b:free"
+MODEL: str = "nvidia/nemotron-3.5-super-vl:free"
 BASE_URL: str = "https://openrouter.ai/api/v1"
 
 # Non-streaming parse/tool-runner calls: keep the response under the SDK HTTP
@@ -81,5 +93,5 @@ def validate() -> None:
             "policy: baseline effort must be 'xhigh' -- the control arm gets the "
             "highest setting (manual section 16.2)"
         )
-    if MODEL != "nvidia/nemotron-3-ultra-550b-a55b:free":
+    if MODEL != "nvidia/nemotron-3.5-super-vl:free":
         raise AssertionError(f"policy: unexpected model {MODEL!r}")
