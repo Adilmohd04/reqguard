@@ -295,8 +295,17 @@ def _call_with_transient_retry(fn: Any, call_kwargs: dict[str, Any], provider_na
     your conversation and tool state are preserved"). 402/403 (credit/auth
     walls) are never retried here -- they're not transient, and burning
     `_RETRY_BACKOFF_SECONDS` on one just delays reaching a provider that can
-    actually answer."""
-    last: openai.APIStatusError | None = None
+    actually answer.
+
+    Also retries on `openai.APIConnectionError` (DNS failure, connection
+    reset, read timeout -- `APITimeoutError` is a subclass, so it's covered
+    too). Found live, 2026-09-01: a plain DNS blip (`getaddrinfo failed`) on
+    the very first call of a run raised straight through this function
+    un-retried and un-wrapped, killing the whole multi-stage pipeline before
+    a single provider had actually been asked twice. A connection-level
+    failure is exactly the kind of few-second transient a 429/5xx already
+    gets a retry for; there is no principled reason to treat it worse."""
+    last: Exception | None = None
     for attempt, delay in enumerate((0.0, *_RETRY_BACKOFF_SECONDS)):
         if delay:
             time.sleep(delay)
@@ -309,6 +318,13 @@ def _call_with_transient_retry(fn: Any, call_kwargs: dict[str, Any], provider_na
             print(
                 f"  ({provider_name}: {exc.status_code}, retrying in-place "
                 f"[{attempt + 1}/{len(_RETRY_BACKOFF_SECONDS) + 1}])",
+                file=sys.stderr,
+            )
+        except openai.APIConnectionError as exc:
+            last = exc
+            print(
+                f"  ({provider_name}: connection error ({exc}), retrying "
+                f"in-place [{attempt + 1}/{len(_RETRY_BACKOFF_SECONDS) + 1}])",
                 file=sys.stderr,
             )
     assert last is not None
@@ -374,6 +390,16 @@ def _call(method_path: str, stage: str, **kwargs: Any) -> Any:
             # gates, outages -- already retried in-place if transient (see
             # _call_with_transient_retry); still failing means move on.
             last_exc, last_msg = exc, f"({exc.status_code}) {exc.message}"
+            continue
+        except openai.APIConnectionError as exc:
+            # Network-level failures (DNS, reset, timeout) -- already
+            # retried in-place if transient; still failing means this
+            # provider (or this machine's route to it) is unreachable right
+            # now. Move on to the next provider rather than dying here --
+            # found live, 2026-09-01: this was previously uncaught and took
+            # the whole run down on the first provider's DNS hiccup, even
+            # though two other configured providers were never even tried.
+            last_exc, last_msg = exc, f"connection error: {exc}"
             continue
         except pydantic.ValidationError as exc:
             # A 200 response whose BODY isn't valid JSON for the schema --
