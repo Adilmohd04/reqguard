@@ -49,10 +49,22 @@ except (AttributeError, OSError):  # pragma: no cover - non-reconfigurable strea
 # var always wins over a stale .env. Optional dependency: a missing .env or a
 # missing python-dotenv install are both silent no-ops, never a crash, since
 # --replay mode needs neither a key nor this file.
+#
+# usecwd=True is required for a real pip/pipx/uv-tool install: without it,
+# find_dotenv() walks up from THIS installed file's location (e.g. inside
+# site-packages/, or a uv tool venv), never from the project the user is
+# actually analyzing -- so a .env dropped in the target repo's root (exactly
+# what the README tells every new user to do) is silently never read. Only
+# an editable dev install (`pip install -e .`) happened to hide this, because
+# the installed file and the repo root were the same tree.
 try:
-    from dotenv import load_dotenv
+    from dotenv import find_dotenv, load_dotenv
 
-    load_dotenv(override=False)
+    # load_dotenv() has no usecwd kwarg of its own -- it only forwards to
+    # find_dotenv() when dotenv_path is omitted, and find_dotenv()'s own
+    # default (usecwd=False) walks up from THIS file's location, not the
+    # caller's. Resolve the path ourselves with usecwd=True instead.
+    load_dotenv(dotenv_path=find_dotenv(usecwd=True), override=False)
 except ImportError:  # pragma: no cover - dotenv not installed
     pass
 
