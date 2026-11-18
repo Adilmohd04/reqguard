@@ -38,8 +38,8 @@ from reqguard.verification.safety import safe_resolve
 # before any command runs, rather than reach for ASCII fallbacks that would
 # quietly deviate from the specified output.
 try:
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 except (AttributeError, OSError):  # pragma: no cover - non-reconfigurable stream
     pass
 

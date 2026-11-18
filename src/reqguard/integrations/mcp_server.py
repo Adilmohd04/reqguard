@@ -671,6 +671,8 @@ def _error(msg_id: Any, code: int, message: str) -> dict:
 def _call_tool(params: dict) -> dict:
     name = params.get("name")
     args = params.get("arguments") or {}
+    if not isinstance(name, str):
+        return {"content": [{"type": "text", "text": "missing or invalid 'name'"}], "isError": True}
     handler = _HANDLERS.get(name)
     if handler is None:
         return {"content": [{"type": "text", "text": f"unknown tool {name!r}"}], "isError": True}

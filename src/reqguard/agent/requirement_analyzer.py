@@ -54,7 +54,7 @@ def run(requirements_path: str | Path, trace: Trace | None = None) -> list[Requi
         # response_format -- `structured()` wraps/unwraps this transparently
         # via a one-field envelope model (client.py: `_envelope_for`), so
         # this call site stays `list[Requirement]` unchanged.
-        list[Requirement],  # type: ignore[arg-type]
+        list[Requirement],  # type: ignore[arg-type,type-var]
         trace,
     )
-    return list(result)
+    return list(result)  # type: ignore[arg-type]

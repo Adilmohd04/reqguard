@@ -447,7 +447,13 @@ def structured(
     """A single structured call. Stages 1 (analyze) and 3 (plan) use this.
 
     Returns the validated model instance. A bare `list[...]` output_format is
-    wrapped/unwrapped transparently (OpenAI needs a single BaseModel).
+    wrapped/unwrapped transparently (OpenAI needs a single BaseModel). The
+    signature can't express this duality with a plain Union -- `_T | list[_T]`
+    makes mypy mis-infer the return type at `list[...]` call sites (tried,
+    reverted). An `@overload` pair would type it correctly but is more
+    machinery than this is worth; callers that pass `list[SomeModel]`
+    silence both the argument and the return mismatch locally instead (see
+    `requirement_analyzer.run()`).
     """
     trace = trace or _NullTrace()
 
